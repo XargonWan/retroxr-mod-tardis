@@ -1,0 +1,11 @@
+{
+  "id": "xenu.tardis",
+  "name": "TARDIS XR",
+  "version": "0.7.3",
+  "author": "Xargon",
+  "description": "The Doctors' Sonic Screwdriver (the 10th's by default) and a TARDIS you can enter. Hold the screwdriver and press A (X on the left hand) or the trigger, or on a desktop Shift + click: it hums and lights up. Held 1.5 s on a TV or any device it switches it; on the TARDIS it sends it away; on nothing it calls a TARDIS, whose door leads to the 1st or the 10th Doctor's console room.",
+  "api_version": 1,
+  "entry": "res://mods/xenu.tardis/mod_main.gd",
+  "priority": 0,
+  "claims": []
+}
