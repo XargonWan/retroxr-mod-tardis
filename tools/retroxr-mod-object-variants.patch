@@ -1,0 +1,80 @@
+diff -ru a/docs/modding.md b/docs/modding.md
+--- a/docs/modding.md	2026-11-09 17:07:56.777200884 +0100
++++ b/docs/modding.md	2026-11-09 17:07:56.841936769 +0100
+@@ -566,6 +566,24 @@
+ one it is only on a console's card, when it is a pad, gun or lead for that console
+ or a row you add with `add_peripherals`.
+ 
++A prop that comes in several looks (a sonic screwdriver of each Doctor, a toy in
++colors) is **one row** with `variants`, as a console's colors are
++(see [Colors and editions on one row](#colors-and-editions-on-one-row)):
++
++```gdscript
++api.register_object("xenu.mod:toy", "res://mods/xenu.mod/toy.tscn", {
++    "label": "Toy",
++    "variants": [
++        {"id": "red", "label": "Red", "color": Color8(200, 40, 40)},    # as it comes
++        {"id": "blue", "label": "Blue", "color": Color8(40, 60, 200)},
++    ]})
++```
++
++Pressed, the row spawns the first; held, it asks which. The id picked is given to the
++prop as metadata before it enters the room, `get_meta(&"model_variant", "")`
++(readable from `_ready()`), and a save keeps it. An id you do not recognize is a save
++that has outlived your list: leave the prop as it comes.
++
+ A prop that **does something when used** -- a figure that animates, a toy that
+ squeaks -- does it from `XRToolsPickable`'s `action()` (or its `action_pressed` /
+ `action_released` signals): in VR that is the **trigger** on the controller holding
+diff -ru a/RetroXR/Scripts/Data/systems/spawn_catalog.gd b/RetroXR/Scripts/Data/systems/spawn_catalog.gd
+--- a/RetroXR/Scripts/Data/systems/spawn_catalog.gd	2026-11-09 17:07:56.771200815 +0100
++++ b/RetroXR/Scripts/Data/systems/spawn_catalog.gd	2026-11-09 17:07:56.840932733 +0100
+@@ -1121,6 +1121,11 @@
+ 		owner_id: String) -> String:
+ 	if type.is_empty():
+ 		return "spawnable type is empty"
++	# Colors it comes in (`variants`, the shape a console's row has): checked here, so a bad list is
++	# refused at registration and not found out on the menu.
++	var colors_error := SystemModelRegistry.variants_error(menu.get("variants", []))
++	if not colors_error.is_empty():
++		return "%s: %s" % [str(menu.get("label", type)), colors_error]
+ 	var row := menu.duplicate(true)
+ 	row["owner"] = owner_id
+ 	row["label"] = str(menu.get("label", type))
+@@ -1128,22 +1133,32 @@
+ 	return ""
+ 
+ 
+-## Every mod prop offered on the menu, as {type, label}.
++## Every mod prop offered on the menu, as {type, label, variants} (`variants` empty for a prop that
++## comes in one look).
+ static func mod_spawnables() -> Array:
+ 	var out: Array = []
+ 	for type: String in _mod_spawnables:
+-		out.append({"type": type, "label": str(_mod_spawnables[type].get("label", type))})
++		out.append({"type": type, "label": str(_mod_spawnables[type].get("label", type)),
++			"variants": (_mod_spawnables[type].get("variants", []) as Array).duplicate(true)})
+ 	return out
+ 
+ 
+-## The SPAWN menu's Objects tab, as [label, token] rows: the shipped OBJECTS, then every
++## The SPAWN menu's Objects tab, as [label, token(, variants)] rows: the shipped OBJECTS, then every
+ ## prop a mod registered with a menu label (register_object(type, scene, {"label": ...})),
+ ## by label, as "mod:<type>". Before these were read here the label was kept and shown
+ ## nowhere, so a prop that plugs into no console's card could not be spawned at all.
++##
++## A mod prop that comes in several looks says so with `variants` in that menu dictionary
++## ([{id, label, color}], the first the prop as it comes), and its row is held to choose one, as a
++## battery's is. The id picked reaches the prop as its `model_variant` before it enters the room and
++## is saved with it, which is how a console's color already travels.
+ static func objects() -> Array:
+ 	var mods: Array = []
+ 	for item: Dictionary in mod_spawnables():
+-		mods.append([str(item["label"]), "mod:" + str(item["type"])])
++		var row: Array = [str(item["label"]), "mod:" + str(item["type"])]
++		if not (item["variants"] as Array).is_empty():
++			row.append(item["variants"])
++		mods.append(row)
+ 	mods.sort_custom(func(a: Array, b: Array) -> bool: return str(a[0]).naturalnocasecmp_to(str(b[0])) < 0)
+ 	return OBJECTS.duplicate(true) + mods
+ 

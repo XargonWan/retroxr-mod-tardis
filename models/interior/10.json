@@ -1,0 +1,57 @@
+{
+ "floor_z_blender": -1.4,
+ "centre_blender": [
+  -0.2566139725240646,
+  8.685070872306824
+ ],
+ "door": {
+  "centre": [
+   0.529,
+   1.413,
+   9.015
+  ],
+  "size": [
+   0.564,
+   2.131,
+   0.075
+  ]
+ },
+ "rotors": [
+  {
+   "name": "Rotor1",
+   "centre": [
+    0.168,
+    4.63,
+    -0.21
+   ],
+   "size": [
+    0.515,
+    2.05,
+    0.515
+   ]
+  },
+  {
+   "name": "Rotor2",
+   "centre": [
+    0.168,
+    3.097,
+    -0.21
+   ],
+   "size": [
+    0.515,
+    2.05,
+    0.515
+   ]
+  }
+ ],
+ "collision_triangles": 3579,
+ "collision_objects": 23,
+ "wall_radius_p98": 9.47,
+ "wall_radius_max": 9.88,
+ "height_range": [
+  -1.7,
+  8.25
+ ],
+ "triangles": 226617,
+ "meshes": 59
+}

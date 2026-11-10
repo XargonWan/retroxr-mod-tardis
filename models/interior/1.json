@@ -1,0 +1,41 @@
+{
+  "scale_blender_to_m": 60.0,
+  "floor_z_blender": 2.357,
+  "door": {
+    "centre": [
+      0.142,
+      0.882,
+      4.566
+    ],
+    "size": [
+      1.145,
+      1.773
+    ]
+  },
+  "rotors": [
+    {
+      "name": "Rotor1",
+      "size": [
+        0.492,
+        1.067,
+        0.492
+      ]
+    },
+    {
+      "name": "Rotor2",
+      "size": [
+        0.242,
+        0.455,
+        0.242
+      ]
+    }
+  ],
+  "wall_radius_p98": 4.45,
+  "height_range": [
+    -1.81,
+    5.99
+  ],
+  "console_radius": 0.97,
+  "console_height": 0.97,
+  "triangles": 66220
+}
