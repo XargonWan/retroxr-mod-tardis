@@ -7,3 +7,5 @@ finito
 TODO*.md
 models/**/*.jpg
 models/**/*.png
+RELEASE.md
+dist/
