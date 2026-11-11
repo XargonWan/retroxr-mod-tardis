@@ -1,6 +1,6 @@
 ## Calling the TARDIS: where it lands, and the sounds of it failing to.
 ##
-## The sonic screwdriver, held for 1.5 s on nothing, summons the TARDIS into the room (once: there is
+## The sonic screwdriver, held for a second on nothing, summons the TARDIS into the room (once: there is
 ## one TARDIS in a room). It lands IN FRONT of the player if there is room; if not, in the nearest
 ## spot there is, but always on the floor of the room and in sight of the player (so never behind a
 ## wall or outside the map). If there is no room at all the materialisation sound starts, is cut off
@@ -20,8 +20,9 @@ const LANDING_SOUND := "res://mods/xenu.tardis/assets/audio/landing.mp3"
 
 ## The TARDIS as a box to fit (metres): its base with a hand's breadth to spare, and its height.
 const BOX := Vector3(1.14, 2.3, 1.14)
-## How far in front of the player it lands when there is room.
-const FRONT_DISTANCE := 1.7
+## How far in front of the player it lands when there is room (1.7 was too close). With no room there the spots
+## are tried nearest to this distance first, so it lands as near to it as the room allows.
+const FRONT_DISTANCE := 3.0
 ## Never closer than this to the player (it would land on them).
 const MIN_DISTANCE := 1.0
 ## The farthest spot looked at, from the player.

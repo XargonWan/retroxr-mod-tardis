@@ -207,7 +207,7 @@ func _physics_settle() -> void:
 	await get_tree().physics_frame
 
 
-## The screwdriver as a remote: held on a device for 1.5 s, it presses its power key once.
+## The screwdriver as a remote: held on a device for 0.9 s, it presses its power key once.
 func _remote_control() -> void:
 	var sd := _spawn()
 	sd.freeze = true
@@ -220,21 +220,21 @@ func _remote_control() -> void:
 	sd.summon_handler = func() -> void: calls.append(true)
 	await _physics_settle()
 
-	# Not on: nothing aims, nothing is switched.
+	# Not on: it still aims (the device wears the outline) but nothing is switched, however long.
 	sd.advance(5.0)
-	_check(dev.presses.is_empty() and dev.outlined == null, "off: it does not touch what it points at")
+	_check(dev.presses.is_empty() and dev.outlined == true, "off: it aims (the outline) but does not switch what it points at")
 
 	sd.begin_use()
 	sd.advance(0.1)
 	_check(dev.outlined == true, "on, pointing at a device: it wears the remote's outline")
-	sd.advance(1.0)
-	_check(dev.presses.is_empty(), "1.1 s on it: not yet (the effect is not instant)")
-	sd.advance(0.5)
-	_check(dev.presses == ["power"] and fired == [dev], "1.6 s on it: power pressed once: %s" % [dev.presses])
+	sd.advance(0.7)
+	_check(dev.presses.is_empty(), "0.8 s on it: not yet (the effect is not instant)")
+	sd.advance(0.3)
+	_check(dev.presses == ["power"] and fired == [dev], "1.1 s on it: power pressed once: %s" % [dev.presses])
 	sd.advance(5.0)
 	_check(dev.presses.size() == 1, "kept down: still once, not a flicker")
 	sd.end_use()
-	_check(dev.outlined == false, "let go: the outline goes")
+	_check(dev.outlined == true, "let go: it is still aimed at, so the outline stays")
 	sd.begin_use()
 	sd.advance(1.6)
 	_check(dev.presses.size() == 2, "pressed again: it switches again (on, then off)")
@@ -243,17 +243,17 @@ func _remote_control() -> void:
 	# A break in the aim starts the count again.
 	dev.presses.clear()
 	sd.begin_use()
-	sd.advance(1.0)
+	sd.advance(0.7)
 	sd.rotation_degrees = Vector3(0, 90, 0)
 	await _physics_settle()
 	sd.advance(0.2)
 	_check(dev.outlined == false, "pointed away: the outline goes")
 	sd.rotation_degrees = Vector3.ZERO
 	await _physics_settle()
-	sd.advance(1.0)
-	_check(dev.presses.is_empty(), "1.0 s, a break, 1.0 s: the break reset the count")
-	sd.advance(0.6)
-	_check(dev.presses.size() == 1, "1.6 s unbroken after it: pressed")
+	sd.advance(0.7)
+	_check(dev.presses.is_empty(), "0.7 s, a break, 0.7 s: the break reset the count")
+	sd.advance(0.4)
+	_check(dev.presses.size() == 1, "1.1 s unbroken after it: pressed")
 	sd.end_use()
 
 	# What it cannot switch.

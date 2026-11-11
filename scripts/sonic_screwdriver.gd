@@ -46,8 +46,8 @@ const LED_ENERGY_ON := 4.0
 ## material scales its glow by its alpha, so left at ~0.17 it would not show. An opaque LED (the
 ## 10th Doctor's emitter dome) is not touched this way.
 const LED_ALPHA_ON := 0.75
-## How long it must stay on a device, with the button down, before it switches it.
-const TARGET_HOLD := 1.5
+## How long it must stay on a device, with the button down, before it switches it (was 1.5 s: 40% less).
+const TARGET_HOLD := 0.9
 ## The cone a device must be inside to be aimed at (half-angle, degrees) and the reach, as the TV remote's.
 const TARGET_CONE_DEG := 20.0
 const TARGET_RANGE := 8.0
@@ -116,9 +116,9 @@ func _teach_verbs() -> void:
 		"Hold {g} to use it: it hums and lights up", HeldHint.WHEN_HELD)
 	_hint.add_row(USE_VR, HeldHint.PLATFORM_VR, vr_use, "Hold {g}, or the trigger, to use it: it hums and lights up", HeldHint.WHEN_HELD)
 	_hint.add_row(REMOTE_DESKTOP, HeldHint.PLATFORM_DESKTOP, ["keyboard_shift_outline", "mouse_left_outline"],
-		"Hold {g} for 1.5 s on a device or the TARDIS to switch it, on nothing to call the TARDIS", HeldHint.WHEN_HELD)
+		"Hold {g} for a second on a device or the TARDIS to switch it, on nothing to call the TARDIS", HeldHint.WHEN_HELD)
 	_hint.add_row(REMOTE_VR, HeldHint.PLATFORM_VR, vr_use,
-		"Hold {g} for 1.5 s on a device or the TARDIS to switch it, on nothing to call the TARDIS", HeldHint.WHEN_HELD)
+		"Hold {g} for a second on a device or the TARDIS to switch it, on nothing to call the TARDIS", HeldHint.WHEN_HELD)
 
 
 ## The verb was used: HeldHint stops showing a row that has been learned.
@@ -154,16 +154,19 @@ func _process(delta: float) -> void:
 	advance(delta)
 
 
-## One step of the remote part: while it is on, find what the tip points at, and switch it once it
-## has been on it for TARGET_HOLD seconds. _process calls it; the tests call it with the time they want.
+## One step of the remote part: find what the tip points at (whenever it is held, so the device wears the remote's
+## outline as soon as it is aimed at, not only while the button is down), and, with the button down, switch it once it
+## has been aimed at for TARGET_HOLD seconds. _process calls it; the tests call it with the time they want.
 func advance(delta: float) -> void:
-	if not _active:
-		return
 	var device := _scan_target()
 	if device != _aimed:
 		_set_aimed(device)
 		_aim_time = 0.0
 		_fired = false
+	if not _active:
+		_aim_time = 0.0  # the hold counts from the press, without a break
+		_fired = false
+		return
 	if _fired:
 		return
 	_aim_time += delta
@@ -206,6 +209,7 @@ func _on_dropped(_p: Variant) -> void:
 	_trigger_down = false
 	set_process(false)
 	_set_active(false)
+	_set_aimed(null)  # put down, it aims at nothing
 
 
 func _a_held() -> bool:
@@ -226,7 +230,6 @@ func _set_active(on: bool) -> void:
 			_sound.stop()
 	_apply_led(on)
 	if not on:
-		_set_aimed(null)
 		_aim_time = 0.0
 		_fired = false
 	activation_changed.emit(on)
