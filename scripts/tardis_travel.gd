@@ -80,6 +80,13 @@ static func leave(from: Node, manager: Object = null) -> bool:
 	return true
 
 
+## A TARDIS was deleted: if it is the one that was entered, it is no longer there to step out of and `arrive`
+## must not put it back (that is only for a room whose slot did not keep it).
+static func forget(tardis: Node3D) -> void:
+	if origin.has("tardis") and (origin["tardis"] as Transform3D).origin.distance_to(tardis.global_transform.origin) < 0.05:
+		origin.erase("tardis")
+
+
 ## Where the player stands to step out of a TARDIS at `tardis_xf`: in front of its door, turned away
 ## from it. Pure.
 static func step_out_pose(tardis_xf: Transform3D) -> Transform3D:
@@ -98,6 +105,8 @@ static func arrive(tree: SceneTree, kept: bool) -> void:
 	if tree == null or tree.current_scene == null or not kept:
 		return
 	var scene := tree.current_scene
+	if not origin.has("tardis"):
+		return
 	var tardis: Node3D = null
 	for n in tree.get_nodes_in_group(&"xenu_tardis"):
 		tardis = n as Node3D

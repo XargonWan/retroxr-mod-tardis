@@ -13,7 +13,7 @@ const Summon := preload("res://mods/xenu.tardis/scripts/tardis_summon.gd")
 const Exteriors := preload("res://mods/xenu.tardis/scripts/tardis_exteriors.gd")
 const TARDIS_SCENE := "res://mods/xenu.tardis/scenes/tardis.tscn"
 const SCREWDRIVER_SCENE := "res://mods/xenu.tardis/scenes/sonic_screwdriver.tscn"
-const EXPECTED_CASES := 65
+const EXPECTED_CASES := 75
 
 var _cases := 0
 var _failed := 0
@@ -23,6 +23,7 @@ var _room: Node3D = null
 func _ready() -> void:
 	_pure()
 	await _the_scene()
+	await _deleted()
 	await _states()
 	await _see_through()
 	await _pointed_at()
@@ -142,6 +143,8 @@ func _pure() -> void:
 	for p: Vector2 in ahead:
 		near_enough = near_enough and p.length() >= Summon.MIN_DISTANCE - 0.001
 	_check(near_enough, "no spot is closer than MIN_DISTANCE")
+	var sound_start: float = preload("res://mods/xenu.tardis/scripts/mod_assets.gd").DOOR_SOUND_START
+	_check(sound_start >= 0.5 and sound_start <= 0.75, "the door sound is played from where its 0.6 s of silence ends")
 	_check(Summon.score(Vector2(0, -1.7), Vector2.ZERO, Vector2(0, -1)) < Summon.score(Vector2(0, 1.7), Vector2.ZERO, Vector2(0, -1)),
 		"ahead beats behind at the same distance")
 
@@ -155,6 +158,14 @@ func _the_scene() -> void:
 	_check(meshes.size() >= 4, "its meshes are direct children (the highlight looks there): %d" % meshes.size())
 	_check(t.find_child("DoorR", false, false) is MeshInstance3D, "the door leaf is a mesh of its own")
 	_check(t.get_node_or_null("DoorButton") != null and t.get_node_or_null("GroundPlacement") != null, "a door button and a ground placement")
+	var lit := 0
+	for mi: Node in meshes:
+		var m3 := mi as MeshInstance3D
+		for surf in m3.mesh.get_surface_count():
+			var sm := m3.get_surface_override_material(surf) as StandardMaterial3D
+			if sm != null and sm.emission_enabled and sm.emission.is_equal_approx(Color.WHITE) and sm.emission_energy_multiplier > 0.2 and sm.emission_energy_multiplier < 1.5:
+				lit += 1
+	_check(lit >= 3, "the white of the model (windows, POLICE PUBLIC CALL BOX) is lit with a medium emission: %d surfaces" % lit)
 	_check(t.remote_layout()[0]["id"] == "power", "the remote's grid has a power key")
 	_check(t.get_meta(&"mod_object_type", "") == "xenu.tardis:tardis" and t.is_in_group("spawned")
 		and FileAccess.get_file_as_string("res://mods/xenu.tardis/mod_main.gd").contains('TARDIS_TYPE := "xenu.tardis:tardis"'),
@@ -165,6 +176,41 @@ func _the_scene() -> void:
 	_check(t.grab_hold_seconds() > 0.0 and t.throw_scale() == 0.0, "taken by holding, never thrown")
 	t.queue_free()
 	await get_tree().process_frame
+
+
+func _deleted() -> void:
+	# What RetroXR's Vanish has taken (the bin, the item menu's Delete, the SCENE tab) is marked, and shrinks for a few frames
+	var t := _spawn()
+	await get_tree().process_frame
+	t.set_meta("vanishing", true)
+	t.materialize()
+	_check(t.state == t.State.SOLID, "being shrunk away by RetroXR: it does not land again")
+	t.queue_free()
+	await get_tree().process_frame
+	# RetroXR's delete asks an object that has drop_and_free to do the removing: the TARDIS takes off, with its sound
+	var d := _spawn()
+	await get_tree().process_frame
+	d.drop_and_free()
+	_check(d.state == d.State.DEMATERIALIZING and (d.get_node("Sfx") as AudioStreamPlayer3D).playing and not d.is_queued_for_deletion(),
+		"deleted: it takes off, with the take-off sound, and is not freed at once")
+	d._on_dropped()
+	await get_tree().process_frame
+	_check(d.state == d.State.DEMATERIALIZING, "dropped into the bin: the take-off is not overwritten by a landing")
+	# carried off to the bin and deleted there: it takes off from where it stood, not from the bin
+	var home := Transform3D(Basis.IDENTITY, Vector3(4, 0, -2))
+	var c := _spawn()
+	await get_tree().process_frame
+	c.gravity_scale = 0.0
+	c.global_transform = home
+	await get_tree().create_timer(1.0).timeout  # it stands there long enough to count as where it stood
+	c.global_position = Vector3(-6, 1, 5)  # carried to the bin and let go of: not held now, but not for long enough to count as a rest
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	c.drop_and_free()
+	_check(c.state == c.State.DEMATERIALIZING and c.global_position.distance_to(home.origin) < 0.05, "deleted away from where it stood: it takes off from where it stood: %s" % [c.global_position])
+	c.free()
+	d.advance(20.0)
+	_check(d.is_queued_for_deletion(), "and it is freed when it has gone")
 
 
 func _states() -> void:
@@ -182,8 +228,9 @@ func _states() -> void:
 	_check(t.state == t.State.SOLID and t.enabled and not t.freeze and landed.size() == 1, "landed: solid, takeable")
 	var solid := true
 	for mi in t.find_children("*", "MeshInstance3D", false, false):
-		solid = solid and (mi as MeshInstance3D).visible and (mi as MeshInstance3D).transparency == 0.0
-	_check(solid, "landed: every part is drawn, fully")
+		var lit_by_door := mi.name == &"Inside" or mi.name == &"Doorway"  # drawn only while the door is open
+		solid = solid and ((mi as MeshInstance3D).visible != lit_by_door) and (mi as MeshInstance3D).transparency == 0.0
+	_check(solid, "landed: every part is drawn, fully, and the light behind the shut door is not")
 	t.dematerialize()
 	t.advance(7.5)
 	var ghosts := 0
@@ -223,6 +270,8 @@ func _see_through() -> void:
 		if m.name == "Inside" or m.name == "Doorway":
 			inside_hidden = (not m.visible) and (m.name == "Inside" or inside_hidden)
 			continue
+		if m.name == "Core":  # the dark core of the shut door is not part of the ghost: it waits for solid
+			continue
 		for i in m.mesh.get_surface_count():
 			surfaces += 1
 			var first := m.get_surface_override_material(i)
@@ -253,8 +302,8 @@ func _see_through() -> void:
 		for i in (mi as MeshInstance3D).mesh.get_surface_count():
 			back = back and (mi as MeshInstance3D).get_surface_override_material(i) == before[k]
 			k += 1
-	_check(not t.is_ghosted() and back and (t.get_node("Inside") as MeshInstance3D).visible and (t.get_node("Doorway") as MeshInstance3D).visible,
-		"see-through: solid, the model's own materials are back and the door's inside shows")
+	_check(not t.is_ghosted() and back and not (t.get_node("Inside") as MeshInstance3D).visible and not (t.get_node("Doorway") as MeshInstance3D).visible,
+		"see-through: solid, the model's own materials are back, and the light behind the shut door does not leak")
 	t.queue_free()
 	await get_tree().process_frame
 
@@ -271,8 +320,8 @@ func _pointed_at() -> void:
 	await _frames()
 	sd.begin_use()
 	sd.advance(0.1)
-	sd.advance(1.0)
-	_check(t.state == t.State.SOLID, "aimed at the TARDIS 1.1 s: not yet")
+	sd.advance(0.7)
+	_check(t.state == t.State.SOLID, "aimed at the TARDIS 0.8 s: not yet")
 	sd.advance(0.6)
 	_check(t.state == t.State.DEMATERIALIZING, "aimed level at its middle for 1.5 s from a hand's height: it is sent away")
 	sd.end_use()
@@ -299,6 +348,7 @@ func _door() -> void:
 	t.press_door()
 	await get_tree().create_timer(0.55).timeout
 	_check(absf(t.door_degrees() - t.AJAR_DEGREES) < 3.0, "the door opens a crack: %.1f degrees" % t.door_degrees())
+	_check((t.get_node("Inside") as MeshInstance3D).visible and (t.get_node("Doorway") as MeshInstance3D).visible, "the light behind the door shows while the door is open")
 	_check(used.size() == 1 and absf((used[0] as Transform3D).origin.y - 1.6) < 0.01, "the player's place was told")
 	_check(t.entry.has("pose") and (t.entry["pose"] as Transform3D).origin.is_equal_approx(cam.global_position), "and kept")
 	t.press_door()
@@ -306,6 +356,8 @@ func _door() -> void:
 	await get_tree().create_timer(1.1).timeout
 	_check(absf(t.door_degrees()) < 0.5, "the door shuts again: %.1f degrees" % t.door_degrees())
 	_check(went.size() == 1, "and the player was taken in, once")
+	_check(not (t.get_node("Inside") as MeshInstance3D).visible and not (t.get_node("Doorway") as MeshInstance3D).visible, "shut, the light behind the door is gone: none leaks through the seam")
+	_check((t.get_node("Core") as MeshInstance3D).visible, "shut, a dark core is in the shell: a crack at the door's edge cannot show the far wall's white")
 	t.queue_free()
 	cam.queue_free()
 	await get_tree().process_frame
@@ -332,14 +384,14 @@ func _landing_spot() -> void:
 	var space := get_viewport().world_3d.direct_space_state
 	var eye := Vector3(0, 1.6, 0)
 	var spot := Summon.find_spot(space, eye, Vector3(0, 0, -1), 0.0)
-	_check(not spot.is_empty() and (spot["position"] as Vector3).distance_to(Vector3(0, 0, -1.7)) < 0.01,
-		"room to spare: it lands straight ahead, 1.7 m off: %s" % [spot.get("position")])
+	_check(not spot.is_empty() and (spot["position"] as Vector3).distance_to(Vector3(0, 0, -Summon.FRONT_DISTANCE)) < 0.01,
+		"room to spare: it lands straight ahead, %.1f m off: %s" % [Summon.FRONT_DISTANCE, spot.get("position")])
 	_check(absf(float(spot["yaw"])) < 0.01, "and turned to face the player")
-	_block(4, Vector3(1.0, 1.0, 1.0), Vector3(0, 0.5, -1.7))
+	_block(4, Vector3(1.0, 1.0, 1.0), Vector3(0, 0.5, -Summon.FRONT_DISTANCE))
 	await _frames()
 	var moved := Summon.find_spot(space, eye, Vector3(0, 0, -1), 0.0)
 	var p: Vector3 = moved["position"]
-	_check(not moved.is_empty() and Vector2(p.x, p.z).distance_to(Vector2(0, -1.7)) > 1.0, "something in the way: it lands elsewhere: %s" % [p])
+	_check(not moved.is_empty() and Vector2(p.x, p.z).distance_to(Vector2(0, -Summon.FRONT_DISTANCE)) > 1.0, "something in the way: it lands elsewhere: %s" % [p])
 	_check(Vector2(p.x, p.z).length() <= Summon.SEARCH_RADIUS and p.y == 0.0, "still on the floor, in reach")
 	_block(1, Vector3(40, 3, 0.4), Vector3(0, 1.5, -1.9))
 	await _frames()
@@ -369,15 +421,15 @@ func _screwdriver_calls_it() -> void:
 	sd.summoned.connect(func(t: Node3D) -> void: made.append(t))
 	sd.begin_use()
 	sd.advance(0.1)
-	sd.advance(1.0)
-	_check(made.is_empty(), "held 1.1 s on nothing: not yet")
+	sd.advance(0.7)
+	_check(made.is_empty(), "held 0.8 s on nothing: not yet")
 	sd.advance(0.6)
-	_check(made.size() == 1, "held 1.7 s on nothing: the TARDIS is called")
+	_check(made.size() == 1, "held 1.4 s on nothing: the TARDIS is called")
 	var t: Node3D = made[0]
 	_check(t.get_meta(&"mod_object_type", "") == "xenu.tardis:tardis" and t.is_in_group("spawned"),
 		"the TARDIS it called is saved like a cabinet until it is sent away")
-	_check(t.global_position.distance_to(Vector3(0, 0, -1.7)) < 0.01 and t.state == t.State.MATERIALIZING,
-		"it lands 1.7 m ahead of the player, materialising: %s" % [t.global_position])
+	_check(t.global_position.distance_to(Vector3(0, 0, -Summon.FRONT_DISTANCE)) < 0.01 and t.state == t.State.MATERIALIZING,
+		"it lands %.1f m ahead of the player, materialising: %s" % [Summon.FRONT_DISTANCE, t.global_position])
 	sd.advance(5.0)
 	_check(made.size() == 1, "held on: not called twice")
 	sd.end_use()

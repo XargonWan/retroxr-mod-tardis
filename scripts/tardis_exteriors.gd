@@ -10,7 +10,7 @@ extends RefCounted
 const DEFAULT_ID := "default"
 const MODEL_DIR := "res://mods/xenu.tardis/models/tardis/"
 
-## id -> {label, glb, door, door_open_deg, footprint (metres, front to back and across), height,
+## id -> {label, glb, door, door_open_deg, glow_materials + glow_energy (the white parts that are lit), footprint (metres, front to back and across), height,
 ## inside (the white box behind the open door: size and centre, wholly inside the shell's inner walls at +-0.394
 ## so that nothing of the model is between it and the doorway)}.
 const EXTERIORS := {
@@ -19,6 +19,17 @@ const EXTERIORS := {
 		"glb": MODEL_DIR + "default.glb",
 		"door": "DoorR",
 		"door_open_deg": 100.0,
+		# The white of the model (the window panes and the lettering of POLICE PUBLIC CALL BOX are Material.001, the door's
+		# panes Material.005) is lit as the lantern is, but gently: an emission of this energy, white.
+		"glow_materials": ["Material.001", "Material.005"],
+		"glow_energy": 0.5,
+		# The model's own blue stays as it is: it was painted lighter once (tardis_look.gd can: a `paint` table, material name ->
+		# colour) and the user preferred the original.
+		# A dark core inside the shell while the door is shut (from the floor to 1.72 m, under the sign: at the roof, 2.05, its top showed
+		# through the corners as black blocks): a crack at an edge of the door must show dark, never the white
+		# panes of the far wall. It is gone while the door is open (the white light behind it is what shows then).
+		"core_size": Vector3(0.7, 1.57, 0.7),
+		"core_center": Vector3(0.0, 0.935, 0.0),
 		"footprint": Vector2(1.1, 1.1),
 		"height": 2.3,
 		"inside_size": Vector3(0.7, 1.63, 0.7),

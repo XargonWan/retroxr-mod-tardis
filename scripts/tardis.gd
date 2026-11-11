@@ -38,6 +38,7 @@ extends XRToolsPickable
 const Exteriors := preload("res://mods/xenu.tardis/scripts/tardis_exteriors.gd")
 const Assets := preload("res://mods/xenu.tardis/scripts/mod_assets.gd")
 const Travel := preload("res://mods/xenu.tardis/scripts/tardis_travel.gd")
+const Look := preload("res://mods/xenu.tardis/scripts/tardis_look.gd")
 
 const GROUP := &"xenu_tardis"
 ## The type RetroXR saves it under (permanent) and the metadata its persistence reads it from
@@ -86,6 +87,11 @@ const AJAR_CLOSE_SECONDS := 0.4
 const RIGHT_RATE := 5.0
 const RIGHT_MAX := 3.0
 const UPRIGHT_EPS := 0.0035
+## A delete this soon (seconds) into the landing a drop began still takes off from where it stood before it was taken: the bin
+## takes a moment to notice it (1.5 s was not enough: it took off from the bin).
+const RETURN_WINDOW := 6.0
+## It counts as having stood somewhere after this many seconds there, not held and not changing.
+const REST_AFTER := 0.8
 const CENTER_OF_MASS_Y := 0.6
 
 enum State { SOLID, MATERIALIZING, DEMATERIALIZING }
@@ -108,6 +114,14 @@ static var entry: Dictionary = {}
 var travel_handler := Callable()
 
 var state: State = State.SOLID
+## It is on its way out (sent away or deleted): it is not to be put back.
+var _leaving := false
+## Where it stood, solid and not held, the last time it did: what it takes off from if it is deleted soon after being
+## carried off (to the bin), not from where the hand let go of it. `_has_rest` once it has stood.
+var _rest_pose := Transform3D.IDENTITY
+var _has_rest := false
+var _calm := 0.0
+var _calm_at := Vector3.ZERO
 var _t := 0.0
 var _duration := 0.0
 var _parts: Array[MeshInstance3D] = []
@@ -118,7 +132,11 @@ var _door_sfx: AudioStreamPlayer3D = null
 var _button: VRButton = null
 var _signal_held := false
 var _placer: Node = null
+## Whether the white light behind the door is drawn: only while the door is open. Shut, a crack of the seam between the leaves
+## let it leak through as a line of dots.
+var _light_on := false
 var _inside: MeshInstance3D = null
+var _core: MeshInstance3D = null
 var _doorway: MeshInstance3D = null
 ## What the ghost dressed: {mi, surface, original}; and the see-through copies with their own alpha: {material, base}.
 var _ghosted: Array[Dictionary] = []
@@ -184,9 +202,21 @@ func _is_held() -> bool:
 	return collision_layer == picked_up_layer and collision_layer != original_collision_layer
 
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if _is_held() or freeze:
+		_calm = 0.0
 		return
+	if state == State.SOLID:
+		# It has stood where it is for REST_AFTER: only then is it "where it stood". The bin (the menu's, the room's) deletes what
+		# is let go over it a moment after the hand lets go, and in that moment the TARDIS is not held: recording its pose at once
+		# made "where it stood" the pose over the bin.
+		if global_position.distance_to(_calm_at) > 0.02:
+			_calm = 0.0  # it has moved: the count starts again from here
+			_calm_at = global_position
+		_calm += delta
+		if _calm >= REST_AFTER:
+			_rest_pose = global_transform
+			_has_rest = true
 	# Not held: it tends to STAND. Dropped leaning, it turns back upright about the horizontal.
 	# Its heading is left alone: the player's to choose.
 	var axis := global_basis.y.cross(Vector3.UP)
@@ -198,11 +228,50 @@ func _physics_process(_delta: float) -> void:
 	angular_velocity = yaw_part + axis.normalized() * turn
 
 
+## Deleted (the storage box, the item menu's Delete, the SCENE tab) or on its way out: RetroXR's Vanish marks the
+## node and shrinks it before freeing it, and for those few frames it is still in the tree. It must do nothing
+## then: not land again (a drop into the bin fires `dropped` first), not become solid, not be put back.
+func _being_deleted() -> bool:
+	return is_queued_for_deletion() or Vanish.is_vanishing(self)
+
+
+func _exit_tree() -> void:
+	# What was deleted or sent away is not to come back with the player from a console room (TardisTravel.arrive puts
+	# one back only where the room's slot did not keep it)
+	if _being_deleted() or _leaving:
+		Travel.forget(self)
+
+
+## RetroXR's delete (the bin, the item menu, the SCENE tab: Trash.delete_with_dependents) calls this on an object that has
+## it instead of shrinking it away like the rest. The TARDIS does what it does when it is sent away: it dematerialises, with
+## the take-off sound, and is freed at the end.
+func drop_and_free() -> void:
+	# carried to the bin (or deleted soon after being put down): it goes from where it stood before it was taken
+	var back := _rest_pose
+	var go_back := _has_rest and (state == State.SOLID or (state == State.MATERIALIZING and _t < RETURN_WINDOW))
+	print("[xenu.tardis %s] deleted: %s, %.1f s into it, was standing at %s, now at %s: %s" % [mod_version(),
+		State.keys()[state], _t, _rest_pose.origin, global_position, "takes off from where it stood" if go_back else "takes off from here"])
+	if _signal_held or is_picked_up():
+		drop()
+	dematerialize()
+	if go_back:
+		global_transform = back
+		linear_velocity = Vector3.ZERO
+		angular_velocity = Vector3.ZERO
+
+
 ## Put down: it goes, and comes back where it was put (GroundPlacement stands it first, deferred).
 func _on_dropped(_p: Variant = null) -> void:
 	_signal_held = false
-	if state == State.SOLID:
-		_begin.call_deferred(State.MATERIALIZING, MATERIALIZE_SECONDS, LANDING_SOUND)
+	if state == State.SOLID and not _being_deleted():
+		_land_if_solid.call_deferred()
+
+
+## The landing after a drop, a frame later: GroundPlacement has stood it up, and a delete that came with the drop (the bin) has
+## already started the take-off, which must not be overwritten by a landing.
+func _land_if_solid() -> void:
+	if state == State.SOLID and not _leaving:
+		_begin(State.MATERIALIZING, MATERIALIZE_SECONDS, LANDING_SOUND)
 
 
 # ── materialising ─────────────────────────────────────────────────────────────
@@ -217,6 +286,7 @@ func materialize() -> void:
 func dematerialize() -> void:
 	if state == State.DEMATERIALIZING:
 		return
+	_leaving = true
 	_begin(State.DEMATERIALIZING, DEMATERIALIZE_SECONDS, TAKEOFF_SOUND)
 
 
@@ -229,10 +299,11 @@ static func mod_version() -> String:
 
 
 func _begin(new_state: State, seconds: float, sound: String) -> void:
-	if not is_inside_tree():
+	if not is_inside_tree() or _being_deleted():
 		return
 	print("[xenu.tardis %s] TARDIS %s" % [mod_version(), "materialising" if new_state == State.MATERIALIZING else "dematerialising"])
 	state = new_state
+	_calm = 0.0
 	_t = 0.0
 	_duration = seconds
 	enabled = false
@@ -268,6 +339,9 @@ static func alpha_at(t: float, duration: float, appearing: bool) -> float:
 func advance(delta: float) -> void:
 	if state == State.SOLID:
 		return
+	if _being_deleted():
+		set_process(false)
+		return
 	_t += delta
 	var appearing := state == State.MATERIALIZING
 	_show_parts(alpha_at(_t, _duration, appearing), appearing and _t >= _duration * SETTLE)
@@ -301,7 +375,17 @@ func _show_parts(alpha: float, solid: bool) -> void:
 		_ghost_to(alpha)
 	for mi in _parts:
 		# the white box behind the open door is one flat material: it is there when the box is solid
-		mi.visible = alpha > 0.01 and ((mi != _inside and mi != _doorway) or solid)
+		mi.visible = alpha > 0.01 and _part_shown(mi, solid)
+
+
+## Whether a part is drawn when the TARDIS is (solid or not): the light behind the door only while the door is open and the TARDIS
+## solid, the dark core in its place while the door is shut, the rest always.
+func _part_shown(mi: MeshInstance3D, solid: bool) -> bool:
+	if mi == _inside or mi == _doorway:
+		return solid and _light_on
+	if mi == _core:
+		return solid and not _light_on
+	return true
 
 
 ## The ghost at `alpha`: every surface on its see-through copy (made once), all at the same alpha: no
@@ -331,7 +415,7 @@ static func _depth_pass() -> StandardMaterial3D:
 
 func _dress_ghosts() -> void:
 	for mi in _parts:
-		if mi == _inside or mi == _doorway or mi.mesh == null:
+		if mi == _inside or mi == _doorway or mi == _core or mi.mesh == null:
 			continue
 		for i in mi.mesh.get_surface_count():
 			var own := mi.get_surface_override_material(i)
@@ -431,7 +515,7 @@ func remote_cell_enabled(_id: String) -> bool:
 ## The door was pressed: it opens a crack, the player's place is kept and they are taken into the
 ## console room (TardisTravel.enter), and it shuts. Ignored while it is changing or already moving.
 func press_door() -> void:
-	if state != State.SOLID or _door_busy or _door == null:
+	if state != State.SOLID or _door_busy or _door == null or _being_deleted():
 		return
 	_door_busy = true
 	var cam := get_viewport().get_camera_3d()
@@ -440,13 +524,23 @@ func press_door() -> void:
 		entry = {"pose": pose, "floor_y": preload("res://mods/xenu.tardis/scripts/tardis_summon.gd").floor_y(cam)}
 		door_used.emit(pose)
 	_door_sfx.stream = Assets.mp3(DOOR_SOUND)
-	_door_sfx.play()
+	_door_sfx.play(Assets.DOOR_SOUND_START)
+	_set_light(true)
 	var tw := create_tween()
 	tw.tween_property(_door, "rotation:y", deg_to_rad(AJAR_DEGREES), AJAR_OPEN_SECONDS)
 	tw.tween_interval(AJAR_HOLD_SECONDS)
 	tw.tween_callback(_go_in)
 	tw.tween_property(_door, "rotation:y", 0.0, AJAR_CLOSE_SECONDS)
-	tw.finished.connect(func() -> void: _door_busy = false)
+	tw.finished.connect(func() -> void:
+		_door_busy = false
+		_set_light(false))
+
+
+## Draw (or not) the light behind the door, now.
+func _set_light(on: bool) -> void:
+	_light_on = on
+	if state == State.SOLID:
+		_show_parts(1.0, true)
 
 
 ## The door has been open a moment: in. (The TARDIS is gone with its room; the door shuts on nobody.)
@@ -476,6 +570,7 @@ func _build_model() -> void:
 		_two_sided(_door)
 	for name: String in meshes:
 		_parts.append(meshes[name] as MeshInstance3D)
+		Look.dress(meshes[name] as MeshInstance3D, row)
 	# The inside, seen through the open door: not the shell's dark inner walls but a white light, "bigger on
 	# the inside" -- a box drawn from within, small enough to stand wholly inside them (HDR white: it blooms
 	# where the room has glow on).
@@ -492,6 +587,7 @@ func _build_model() -> void:
 	inside.material_override = light
 	inside.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	inside.add_to_group("outline_exclude")
+	inside.visible = false  # only while the door is open: a TARDIS made solid (a save, the way back) never runs _show_parts
 	add_child(inside)
 	_inside = inside
 	_parts.append(inside)
@@ -507,9 +603,26 @@ func _build_model() -> void:
 	pane.material_override = pane_light
 	pane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pane.add_to_group("outline_exclude")
+	pane.visible = false
 	add_child(pane)
 	_doorway = pane
+	# ... and, shut, a dark core in the shell: a crack at the edge of the door cannot show the far wall's white panes
+	var core := MeshInstance3D.new()
+	core.name = "Core"
+	var core_box := BoxMesh.new()
+	core_box.size = row["core_size"] as Vector3
+	core.mesh = core_box
+	core.position = row["core_center"] as Vector3
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = Color(0.01, 0.015, 0.04)
+	dark.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core.material_override = dark
+	core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	core.add_to_group("outline_exclude")
+	add_child(core)
+	_core = core
 	_parts.append(pane)
+	_parts.append(core)
 
 
 ## The leaf is seen from behind when it is open, and a leaf is one skin: draw both sides.

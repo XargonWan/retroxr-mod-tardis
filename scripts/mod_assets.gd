@@ -6,6 +6,10 @@
 ## once and cached: a scene built from a GLB is copied on every use.
 extends RefCounted
 
+## tardis-door.mp3 opens with 0.6 s of silence (measured: nothing above -60 dB before it): played from the start the door
+## seemed to sound late. Both doors play it FROM here (`AudioStreamPlayer3D.play(from_position)`).
+const DOOR_SOUND_START := 0.6
+
 static var _models: Dictionary = {}
 static var _sounds: Dictionary = {}
 
