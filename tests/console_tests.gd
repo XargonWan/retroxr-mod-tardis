@@ -17,7 +17,7 @@ const TARDIS_SCENE := "res://mods/xenu.tardis/scenes/tardis.tscn"
 const ROOM_SCRIPT := "res://mods/xenu.tardis/scripts/console_room.gd"
 const MENU_SCENE := "res://mods/xenu.tardis/scenes/console_menu_2d.tscn"
 const SCRATCH := "user://test_tardis_settings.json"
-const EXPECTED_CASES := 81
+const EXPECTED_CASES := 83
 
 var _cases := 0
 var _failed := 0
@@ -210,6 +210,8 @@ func _one_room(id: String) -> void:
 				boxes += 1
 				tallest = maxf(tallest, ((cs as CollisionShape3D).shape as BoxShape3D).size.y)
 	_check(str(row.get("solids", "")).is_empty() or (boxes > 100 and tallest > 1.0), "room %s: the pillars and railings are solid: %d boxes, the tallest %.1f m" % [id, boxes, tallest])
+	_check(room.get_node_or_null("DoorPointer") is StaticBody3D and (room.get_node("DoorPointer") as StaticBody3D).collision_layer == (1 << 20),
+		"room %s: the way out has a body the laser can press, with the trigger or A" % id)
 	var leaves: bool = room.get_node_or_null("DoorLeafRight") != null and room.get_node_or_null("DoorLeafLeft") != null
 	_check(leaves == bool(row.get("door_leaves", false)), "room %s: the way out is a pair of police box doors where the table says so (%s)" % [id, str(leaves)])
 	_check(room.seats.size() == (row.get("seats", []) as Array).size(), "room %s: what can be sat on is there: %d seats" % [id, room.seats.size()])

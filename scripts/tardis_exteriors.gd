@@ -10,7 +10,7 @@ extends RefCounted
 const DEFAULT_ID := "default"
 const MODEL_DIR := "res://mods/xenu.tardis/models/tardis/"
 
-## id -> {label, glb, door, door_open_deg, glow_materials + glow_energy (the white parts that are lit), footprint (metres, front to back and across), height,
+## id -> {label, glb, door, door_open_deg, leaf (its size and handle, for VRDoor), glow_materials + glow_energy (the white parts that are lit), footprint (metres, front to back and across), height,
 ## inside (the white box behind the open door: size and centre, wholly inside the shell's inner walls at +-0.394
 ## so that nothing of the model is between it and the doorway)}.
 const EXTERIORS := {
@@ -19,6 +19,9 @@ const EXTERIORS := {
 		"glb": MODEL_DIR + "default.glb",
 		"door": "DoorR",
 		"door_open_deg": 100.0,
+		# The leaf as RetroXR's VRDoor wants it (when RetroXR has one): its size in metres, and where its handle is in the TARDIS's frame
+		# (the white dot on the leaf, near the seam between the leaves). The hinge is the leaf's origin.
+		"leaf": {"width": 0.462, "height": 1.698, "thickness": 0.112, "knob": Vector2(0.034, 0.945)},
 		# The white of the model (the window panes and the lettering of POLICE PUBLIC CALL BOX are Material.001, the door's
 		# panes Material.005) is lit as the lantern is, but gently: an emission of this energy, white.
 		"glow_materials": ["Material.001", "Material.005"],

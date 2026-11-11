@@ -13,7 +13,8 @@ const Summon := preload("res://mods/xenu.tardis/scripts/tardis_summon.gd")
 const Exteriors := preload("res://mods/xenu.tardis/scripts/tardis_exteriors.gd")
 const TARDIS_SCENE := "res://mods/xenu.tardis/scenes/tardis.tscn"
 const SCREWDRIVER_SCENE := "res://mods/xenu.tardis/scenes/sonic_screwdriver.tscn"
-const EXPECTED_CASES := 75
+const Tardis := preload("res://mods/xenu.tardis/scripts/tardis.gd")
+const EXPECTED_CASES := 87
 
 var _cases := 0
 var _failed := 0
@@ -23,6 +24,8 @@ var _room: Node3D = null
 func _ready() -> void:
 	_pure()
 	await _the_scene()
+	await _vr_door()
+	await _door_pointer()
 	await _deleted()
 	await _states()
 	await _see_through()
@@ -178,6 +181,89 @@ func _the_scene() -> void:
 	await get_tree().process_frame
 
 
+## The door as RetroXR's VRDoor (a stand-in here): hung on the leaf, handle where the model's is, pulled open far enough it goes in.
+func _vr_door() -> void:
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.position = Vector3(0, 1.6, 3)
+	cam.current = true
+	Tardis.door_script_path = "res://mods/xenu.tardis/tests/fake_vr_door.gd"
+	var t := _spawn()
+	await get_tree().process_frame
+	var fake: Node3D = t._vr_door
+	var expect_at := Vector3(0.462 - 0.231, t._door.position.y, t._door.position.z)
+	_check(fake != null and fake.leaf == t._door and fake.position.is_equal_approx(expect_at) and is_equal_approx(float(fake.width), 0.462),
+		"a VRDoor hangs on the leaf, at its bottom middle: %s" % [fake.position if fake != null else "none"])
+	_check(fake != null and t.get_node_or_null("DoorButton") == null and (fake.knob_position as Vector2).is_equal_approx(Vector2(0.034 - fake.position.x, 0.945 - fake.position.y)),
+		"with a VRDoor there is no button over the front, and the handle is where the model's is")
+	var went: Array = []
+	t.travel_handler = func() -> void: went.append(true)
+	var used: Array = []
+	t.door_used.connect(func(_pose: Transform3D) -> void: used.append(true))
+	fake.emit_signal("unlatched")
+	_check((t.get_node("DoorSfx") as AudioStreamPlayer3D).playing, "the handle turned, the latch lets go: the door creaks")
+	fake.emit_signal("door_changed", 10.0, false)
+	_check((t.get_node("Inside") as MeshInstance3D).visible and used.is_empty() and went.is_empty(), "open a little: the light behind shows, and nobody goes in yet")
+	fake.angle = 35.0
+	fake.emit_signal("door_changed", 35.0, false)
+	fake.emit_signal("door_changed", 40.0, false)
+	await get_tree().create_timer(Tardis.ENTER_DELAY + 0.3).timeout
+	_check(went.size() == 1 and used.size() == 1 and fake.closed and not (t.get_node("Inside") as MeshInstance3D).visible,
+		"pulled 30 degrees open: in, once, the door shut behind (it is saved shut) and its light off: %d, %d" % [went.size(), used.size()])
+	Tardis.door_script_path = Tardis.VR_DOOR_SCRIPT
+	t.queue_free()
+	cam.queue_free()
+	await get_tree().process_frame
+
+
+## The fallback door (no VRDoor): what the laser presses, with the trigger or A, never with a hand that holds something.
+func _door_pointer() -> void:
+	var t := _spawn()
+	await get_tree().process_frame
+	var ptr := t.get_node_or_null("DoorPointer") as StaticBody3D
+	_check(ptr != null and ptr.collision_layer == (1 << 20), "without a VRDoor the door has a body on the pointable layer: a headset's laser sees a body, not the button's area")
+	var presses: Array = []
+	ptr.connect("pressed", func() -> void: presses.append(true))
+	var hand := Node3D.new()
+	add_child(hand)
+	var a_value := [0.0]
+	var busy := [false]
+	ptr.read_a = func(_p: Node3D) -> float: return a_value[0]
+	ptr.hand_busy = func(_p: Node3D) -> bool: return busy[0]
+	var Ev := XRToolsPointerEvent
+	ptr.pointer_event(Ev.new(Ev.Type.PRESSED, hand, ptr, Vector3.ZERO, Vector3.ZERO))
+	_check(presses.size() == 1, "the laser's trigger pressed on it opens the door")
+	ptr.pointer_event(Ev.new(Ev.Type.ENTERED, hand, ptr, Vector3.ZERO, Vector3.ZERO))
+	a_value[0] = 1.0
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(presses.size() == 2, "A pressed with the laser on it opens it too, once, not every frame it is held")
+	a_value[0] = 0.0
+	await get_tree().process_frame
+	a_value[0] = 1.0
+	await get_tree().process_frame
+	_check(presses.size() == 3, "let go and pressed again: again")
+	busy[0] = true
+	ptr.pointer_event(Ev.new(Ev.Type.PRESSED, hand, ptr, Vector3.ZERO, Vector3.ZERO))
+	a_value[0] = 0.0
+	await get_tree().process_frame
+	a_value[0] = 1.0
+	await get_tree().process_frame
+	_check(presses.size() == 3, "a hand that holds something (the screwdriver aimed at the TARDIS) neither opens the door with the trigger nor with A")
+	ptr.pointer_event(Ev.new(Ev.Type.EXITED, hand, ptr, Vector3.ZERO, Vector3.ZERO))
+	busy[0] = false
+	a_value[0] = 0.0
+	await get_tree().process_frame
+	a_value[0] = 1.0
+	await get_tree().process_frame
+	_check(presses.size() == 3, "A with the laser off the door does nothing")
+	ptr.emit_signal("pressed")
+	_check(t._door_busy, "the door's body opens it as the button does")
+	hand.queue_free()
+	t.queue_free()
+	await get_tree().process_frame
+
+
 func _deleted() -> void:
 	# What RetroXR's Vanish has taken (the bin, the item menu's Delete, the SCENE tab) is marked, and shrinks for a few frames
 	var t := _spawn()
@@ -202,7 +288,7 @@ func _deleted() -> void:
 	await get_tree().process_frame
 	c.gravity_scale = 0.0
 	c.global_transform = home
-	await get_tree().create_timer(1.0).timeout  # it stands there long enough to count as where it stood
+	await get_tree().create_timer(1.6).timeout  # it stands there long enough to count as where it stood
 	c.global_position = Vector3(-6, 1, 5)  # carried to the bin and let go of: not held now, but not for long enough to count as a rest
 	await get_tree().physics_frame
 	await get_tree().physics_frame

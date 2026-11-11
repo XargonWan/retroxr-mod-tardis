@@ -39,6 +39,7 @@ const Exteriors := preload("res://mods/xenu.tardis/scripts/tardis_exteriors.gd")
 const Assets := preload("res://mods/xenu.tardis/scripts/mod_assets.gd")
 const Travel := preload("res://mods/xenu.tardis/scripts/tardis_travel.gd")
 const Look := preload("res://mods/xenu.tardis/scripts/tardis_look.gd")
+const DoorPointer := preload("res://mods/xenu.tardis/scripts/door_pointer.gd")
 
 const GROUP := &"xenu_tardis"
 ## The type RetroXR saves it under (permanent) and the metadata its persistence reads it from
@@ -92,6 +93,14 @@ const UPRIGHT_EPS := 0.0035
 const RETURN_WINDOW := 6.0
 ## It counts as having stood somewhere after this many seconds there, not held and not changing.
 const REST_AFTER := 0.8
+## RetroXR's door that opens (a knob to turn and a leaf to pull, in a hand; a press from a desk or a laser). Loaded by path: an older
+## RetroXR has none, and the door is then the button it always was.
+const VR_DOOR_SCRIPT := "res://Scripts/Objects/room/vr_door.gd"
+## Where the VRDoor script is looked for: the suite points it at a stand-in (the real one needs the engine's extensions).
+static var door_script_path := VR_DOOR_SCRIPT
+## Pulled this far open (degrees), the player goes in; and the leaf is seen to open a moment first.
+const ENTER_DEGREES := 30.0
+const ENTER_DELAY := 0.35
 const CENTER_OF_MASS_Y := 0.6
 
 enum State { SOLID, MATERIALIZING, DEMATERIALIZING }
@@ -127,6 +136,8 @@ var _duration := 0.0
 var _parts: Array[MeshInstance3D] = []
 var _door: MeshInstance3D = null
 var _door_busy := false
+## The VRDoor on the leaf, when RetroXR has one.
+var _vr_door: Node3D = null
 var _sfx: AudioStreamPlayer3D = null
 var _door_sfx: AudioStreamPlayer3D = null
 var _button: VRButton = null
@@ -169,7 +180,7 @@ func _ready() -> void:
 	print("[xenu.tardis %s] a TARDIS is in the room" % mod_version())
 	_sfx = _player("Sfx")
 	_door_sfx = _player("DoorSfx")
-	_build_door_button()
+	_build_door_control()
 	_placer = GroundPlacement.new()
 	_placer.name = "GroundPlacement"
 	_placer.host = self
@@ -518,13 +529,8 @@ func press_door() -> void:
 	if state != State.SOLID or _door_busy or _door == null or _being_deleted():
 		return
 	_door_busy = true
-	var cam := get_viewport().get_camera_3d()
-	if cam != null:
-		var pose := cam.global_transform
-		entry = {"pose": pose, "floor_y": preload("res://mods/xenu.tardis/scripts/tardis_summon.gd").floor_y(cam)}
-		door_used.emit(pose)
-	_door_sfx.stream = Assets.mp3(DOOR_SOUND)
-	_door_sfx.play(Assets.DOOR_SOUND_START)
+	_record_entry()
+	_play_door_sound()
 	_set_light(true)
 	var tw := create_tween()
 	tw.tween_property(_door, "rotation:y", deg_to_rad(AJAR_DEGREES), AJAR_OPEN_SECONDS)
@@ -534,6 +540,97 @@ func press_door() -> void:
 	tw.finished.connect(func() -> void:
 		_door_busy = false
 		_set_light(false))
+
+
+## Keep where the player stands (and tell it), for the console room to bring them back to.
+func _record_entry() -> void:
+	var cam := get_viewport().get_camera_3d()
+	if cam != null:
+		var pose := cam.global_transform
+		entry = {"pose": pose, "floor_y": preload("res://mods/xenu.tardis/scripts/tardis_summon.gd").floor_y(cam)}
+		door_used.emit(pose)
+
+
+func _play_door_sound() -> void:
+	_door_sfx.stream = Assets.mp3(DOOR_SOUND)
+	_door_sfx.play(Assets.DOOR_SOUND_START)
+
+
+## The door control: RetroXR's VRDoor on the leaf when there is one, else the button over the front.
+func _build_door_control() -> void:
+	if not _build_vr_door():
+		_build_door_button()
+
+
+## A VRDoor on the leaf: the handle taken in a hand, turned with the wrist and pulled; a press from a desk or a laser swings it open.
+## False when RetroXR has no VRDoor (or it will not build here): the caller makes the button.
+func _build_vr_door() -> bool:
+	if _door == null:
+		return false
+	var script := load(door_script_path) as GDScript
+	if script == null or not script.can_instantiate():
+		return false
+	var leaf: Dictionary = Exteriors.entry(exterior).get("leaf", {})
+	if leaf.is_empty():
+		return false
+	var width := float(leaf["width"])
+	var hinge := _door.position  # the leaf's origin is on its hinge, the leaf running -x from it
+	var door := Node3D.new()
+	door.name = "VRDoor"
+	door.set_script(script)
+	door.position = Vector3(hinge.x - width / 2.0, hinge.y, hinge.z)  # bottom middle of the leaf, +Z out of the front
+	door.set("hinge_side", 0)  # POSITIVE_X: the hinge is at the leaf's +x edge
+	door.set("swing", 0)  # TOWARD_POSITIVE_Z: it opens outward
+	door.set("open_deg", float(Exteriors.entry(exterior)["door_open_deg"]))
+	door.set("self_closing", true)  # let go and it eases shut
+	door.set("leaf_collision", false)
+	door.set("width", width)
+	door.set("height", float(leaf["height"]))
+	door.set("thickness", float(leaf["thickness"]))
+	door.set("bottom_gap", 0.0)
+	var knob: Vector2 = leaf["knob"]
+	door.set("knob_position", Vector2(knob.x - door.position.x, knob.y - door.position.y))
+	door.set("log_name", "tardis")
+	add_child(door)
+	_vr_door = door
+	# the model's own leaf hangs on it (the plain one it built is hidden); the handle is the model's white dot, so its
+	# grab is an empty node at that place and the brass knob it would draw is hidden
+	door.call("dress_leaf", _door)
+	var grab := Node3D.new()
+	grab.name = "HandleGrab"
+	add_child(grab)
+	grab.position = Vector3(knob.x, knob.y, hinge.z)
+	door.call("dress_opener", grab)
+	door.connect("unlatched", _on_door_unlatched)
+	door.connect("door_changed", _on_door_changed)
+	return true
+
+
+## The latch let go (the handle turned, or the door pressed): it creaks, and what is inside shows.
+func _on_door_unlatched() -> void:
+	if state == State.SOLID:
+		_play_door_sound()
+
+
+## The door moved. The light behind it is on while it is open; pulled far enough, in the player goes.
+func _on_door_changed(degrees: float, latched: bool) -> void:
+	var open := degrees > 1.0 or not latched
+	if open != _light_on:
+		_set_light(open)
+	if state == State.SOLID and not latched and degrees >= ENTER_DEGREES and not _door_busy and not _being_deleted():
+		_enter_through_door()
+
+
+## Pulled open far enough: the player's place is kept, the door seen open for a moment, then shut (so it is saved shut) and in.
+func _enter_through_door() -> void:
+	_door_busy = true
+	_record_entry()
+	await get_tree().create_timer(ENTER_DELAY).timeout
+	if _vr_door != null and is_instance_valid(_vr_door):
+		_vr_door.call("close", false)
+	_set_light(false)
+	_go_in()
+	_door_busy = false
 
 
 ## Draw (or not) the light behind the door, now.
@@ -553,6 +650,8 @@ func _go_in() -> void:
 
 ## How far the door is open now, in degrees.
 func door_degrees() -> float:
+	if _vr_door != null and is_instance_valid(_vr_door):
+		return float(_vr_door.call("get_angle_deg"))
 	return rad_to_deg(_door.rotation.y) if _door != null else 0.0
 
 
@@ -641,6 +740,11 @@ static func _two_sided(mi: MeshInstance3D) -> void:
 func _build_door_button() -> void:
 	var row := Exteriors.entry(exterior)
 	var fp := row["footprint"] as Vector2
+	# What the laser can press (the button below is an area, which a headset's laser cannot see): the trigger or A, aimed at the door
+	var at := Transform3D(Basis(Vector3.RIGHT, Vector3.BACK, Vector3.DOWN), Vector3(0.0, 0.95, fp.y / 2.0 + 0.02))
+	var pointer := DoorPointer.make(Vector3(0.9, 0.12, 1.75), at)
+	add_child(pointer)
+	pointer.connect("pressed", press_door)
 	_button = VRButton.new()
 	_button.name = "DoorButton"
 	_button.require_trigger = true

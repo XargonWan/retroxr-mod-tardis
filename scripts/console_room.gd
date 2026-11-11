@@ -22,6 +22,7 @@ const Travel := preload("res://mods/xenu.tardis/scripts/tardis_travel.gd")
 const Settings := preload("res://mods/xenu.tardis/scripts/tardis_settings.gd")
 const Exteriors := preload("res://mods/xenu.tardis/scripts/tardis_exteriors.gd")
 const Look := preload("res://mods/xenu.tardis/scripts/tardis_look.gd")
+const DoorPointer := preload("res://mods/xenu.tardis/scripts/door_pointer.gd")
 const ConsoleMenu := preload("res://mods/xenu.tardis/scripts/console_menu.gd")
 const DOOR_SOUND := "res://mods/xenu.tardis/assets/audio/tardis-door.mp3"
 ## The hum of the inside of a TARDIS, in every console room, looping for as long as the player is in it.
@@ -349,18 +350,22 @@ func _build_door() -> void:
 	add_child(_door_sfx)
 	if bool(ConsoleRooms.entry(console_id).get("door_leaves", false)):
 		_build_door_leaves(at)
+	var inward := -1.0 if at.z > 0.0 else 1.0
+	var face := Basis(Vector3.RIGHT, Vector3.FORWARD, Vector3.UP) if inward < 0.0 else Basis(Vector3.RIGHT, Vector3.BACK, Vector3.DOWN)
+	var door_size: Array = door.get("size", [0.0, 0.0])
+	var button_w := maxf(1.9, float(door_size[0]) + 0.2)
+	var button_h := maxf(2.7, float(door_size[1]) + 0.3)
+	# what the laser can press (the button is an area, which a headset's laser cannot see): the trigger or A, aimed at the door
+	var pointer := DoorPointer.make(Vector3(button_w, 0.2, button_h) * room_scale, Transform3D(face, at + Vector3(0, 0, inward * 0.3 * room_scale)))
+	add_child(pointer)
+	pointer.connect("pressed", press_door)
 	door_button = VRButton.new()
 	door_button.name = "DoorButton"
 	door_button.require_trigger = true
 	door_button.interact_margin = 0.08
 	door_button.depress_depth = 0.0
 	# the button's +Y is its face: out of the door, into the room (-Z when the door is on the +Z wall, +Z when it is on the other)
-	var inward := -1.0 if at.z > 0.0 else 1.0
-	var face := Basis(Vector3.RIGHT, Vector3.FORWARD, Vector3.UP) if inward < 0.0 else Basis(Vector3.RIGHT, Vector3.BACK, Vector3.DOWN)
 	door_button.transform = Transform3D(face, at + Vector3(0, 0, inward * 0.3 * room_scale))
-	var door_size: Array = door.get("size", [0.0, 0.0])
-	var button_w := maxf(1.9, float(door_size[0]) + 0.2)
-	var button_h := maxf(2.7, float(door_size[1]) + 0.3)
 	var cap := MeshInstance3D.new()
 	cap.name = "ButtonMesh"
 	var plate := BoxMesh.new()

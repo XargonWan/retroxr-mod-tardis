@@ -77,7 +77,7 @@ If there is no room there, it lands in the nearest spot in sight; if there is no
 all, the landing sound is cut off by a buzz and nothing comes. Only one TARDIS to a room. Once it has landed it
 is kept like an arcade cabinet (saved in the room's slot, back where you left it) until you send it away: hold the
 screwdriver on it for a second, aimed at its middle, and it takes off. Take it by holding the grab on it for a second; aim at the floor and a
-yellow rectangle shows where it will stand; let go and it vanishes and lands again there. Press its door
+yellow rectangle shows where it will stand; let go and it vanishes and lands again there. Open its door (in a headset with a RetroXR that has doors that open: take the handle, turn it and pull; otherwise point the laser at it and press the trigger or A / X; on a desktop, click) and you go in. Press its door
 (trigger in VR, click on a desktop): it opens a crack and shuts, and what you see in the opening is a white light, and then you are in the console room. The white of its windows and of the lettering is lit (a medium glow, as the lantern's light above). Delete it (the bin, the item menu, the SCENE tab) and it takes off, with the sound and the blinking, and is then gone for good. It lands about 3 m ahead of you when there is room, and as near to that as the room allows when there is not.
 It is also on SPAWN > Objects as "TARDIS".
 
