@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `xenu.tardis` ("TARDIS XR") is a **RetroXR mod** in GDScript (Godot 4.7). The finished mod adds a Sonic
 Screwdriver (several Doctors' models), a TARDIS you summon with it, and console rooms reached through
 the TARDIS's door. `TODO.md` (git-ignored, in Italian) is the full plan; **the screwdrivers, the TARDIS exterior and the 10th Doctor's console room are built**
-(see `README.txt` for Built / Not built). Keep that list current.
+(see `README.md` for Built / Not built). Keep that list current.
 
 Like `xenu.synth_rift` (the model to follow: `~/gits/retroxr-mod-synth/CLAUDE.md`), this repo is not a
 Godot project. It is the folder `RetroXR/mods/xenu.tardis/` of a RetroXR checkout, and every
@@ -65,7 +65,8 @@ blender -b -P tools/render_lineup.py -- /tmp/lineup.png 2 3 4 5 10 11 12 13   # 
   our own, so nothing depends on the renderer compiling a string.)
 - **Deploy after every change meant for testing**: run `python3 tools/pack.py`. The user tries the mod in
   RetroXR from `~/retroxr/mods/` (MODS tab, enable, *Apply now*; a mod already running needs a restart).
-  Bump `version` in `mod.json` when it matters, so the Mods page shows which build is installed.
+  `mod.json`'s `version` is left alone (the release workflow computes it from the commits): the game's log tells builds
+  apart by the files, so say in the hand-over what changed.
 - The suite exits non-zero on a failure, on zero cases, **and on a case count other than
   `EXPECTED_CASES`**: a script error aborts the running function silently and the rest still prints
   `0 failed`. Update `EXPECTED_CASES` when adding cases.
@@ -96,7 +97,7 @@ blender -b -P tools/render_lineup.py -- /tmp/lineup.png 2 3 4 5 10 11 12 13   # 
   where `PickableHighlight` looks. Use is the pickable's own `action_pressed`/`action_released` (trigger;
   Shift + click on desktop) **and** the holding controller's `ax_button` polled in `_process`.
 - It is also a remote: held on a device (anything in RetroXR's `remote_target` group, `RemoteTarget`) for
-  `TARGET_HOLD` (1.5 s) with the button down, it presses the device's `power` cell once per press. The
+  `TARGET_HOLD` (0.9 s) with the button down, it presses the device's `power` cell once per press. The
   aim is the TV remote's (cone from the tip in VR, crosshair on desktop, layer 21 `PointerArea`s). The
   tests build a fake device (`tests/fake_remote_device.gd`).
 - `scripts/tardis.gd` is the TARDIS (a cabinet-like pickable: hold-to-grab, never thrown, `GroundPlacement`,
@@ -124,7 +125,7 @@ blender -b -P tools/render_lineup.py -- /tmp/lineup.png 2 3 4 5 10 11 12 13   # 
   The TARDIS is SAVED: `_init` stamps `mod_object_type` (RetroXR's `MOD_TYPE_META`) whoever makes it, and the
   scene is in the `spawned` group. Its `PointerArea` has its origin at the body's MIDDLE: the screwdriver's cone
   measures to a collider's origin, from the floor a 2.3 m box is 40 degrees below where the hand points.
-- `tools/convert_tardis.py` builds the TARDIS GLB (door leaf split off by a box of faces: `--leaf-*`).
+- `tools/convert_tardis.py` builds the TARDIS GLB (door leaf split off by a planes cut at its four edges: `--leaf-*`).
   Entering the TARDIS (console room) is not built; `Tardis.entry` keeps where the player stood.
 - Console rooms (`console_rooms.gd`: one per interior, room id `xenu.tardis:console_<id>`, permanent; **the default is
   "1", the 1st Doctor's**: the 10th's needs work. The table row has `scale`, `console` (radius, height), `door_light`,
@@ -132,8 +133,7 @@ blender -b -P tools/render_lineup.py -- /tmp/lineup.png 2 3 4 5 10 11 12 13   # 
   rotor and console, the 1st is bright white with the roundels lit white. Each scene has its own Environment):
   `console_room.gd` builds the room at load from the GLB + JSON that `tools/convert_interior.py` makes
   (`tools/build_interiors.py` is not written: run the converter by hand, see its docstring; the sources are
-  Blender scenes made for rendering: 4 M triangles to ~230 k, a minute and a half). The model is drawn at
-  `ROOM_SCALE` (0.75: at 1.0 it was 19 m across with a 2.3 m door, "enormous") and everything built here
+  Blender scenes made for rendering: 4 M triangles to ~230 k, a minute and a half). The model is drawn at the table's `scale` (the 10th's is 0.7 since 2026-11-11: at 0.55 its door was 1.40 m high and a player was taller than the doorway; its real doorway is the table's `opening`, measured with rays) (it was `ROOM_SCALE` 0.75: at 1.0 it was 19 m across with a 2.3 m door, "enormous") and everything built here
   follows it, the hull points scaled by hand (a collision shape's own scale is not trusted); the rig in the
   `.tscn` stands at the door scaled the same. It adds colliders on
   layer 1 (a flat floor at y = 0, wall ring, ceiling, console cylinder, plus one convex hull per pillar and part of
@@ -155,17 +155,32 @@ blender -b -P tools/render_lineup.py -- /tmp/lineup.png 2 3 4 5 10 11 12 13   # 
   rod by `--led-above`). A see-through LED would scale its glow by alpha, so lit it is made more opaque
   (`LED_ALPHA_ON`); an opaque one is not. It is emission only, no `Light3D`: RetroXR
   documents that a tiny light near a surface renders black on Quest.
-- `tools/pack.py` exists because `pack_mod.gd` skips `.glb`/`.mp3`. RetroXR refuses a pack containing a
-  `.md` (also a Mega Drive ROM extension) or any program/ROM extension: keep notes as `.txt`.
+- **The pack is made by `tools/pack_mod.py`** (copied from `~/gits/retroxr-mod-synth`, with `.glb`/`.mp3` added to what it takes
+  because this mod reads them at run time, and `tests/`, `src.local/`, `build/` and `res/` left out; the thumbnail is
+  `res/thumbnail.png`, 16:9, put at the pack's root). `tools/pack.py` calls it, has RetroXR's loader read the zip back, and
+  deploys. RetroXR refuses a pack containing a `.md` (also a Mega Drive ROM extension) or any program/ROM extension, and the
+  packer never ships `.md`/`.txt` or documentation: **CREDITS.txt is therefore NOT in the zip any more**: the credits are in
+  README.md and the release notes (open question for the user: CC BY wants the credit to travel with the mod).
+- **Publishing rules** (CI/CD, mod.io, README with the thumbnail first and a screenshots section, `res/screenshot*.png`, commit
+  style, no push without being asked): `~/gits/RetroXR-xargon/TODO-mods-prompt.md`. The workflow is the synth's
+  (`.github/workflows/release.yml`, `tools/release_notes.py`, `tools/publish_modio.py`, `tests/publish_modio_test.py`,
+  `tests/release_version_test.py`: `python3 -I tests/<file>` runs each). The version comes from the commits (`feat` minor,
+  `fix`/`perf` patch): `mod.json`'s is not bumped by hand. The repository secret `MODIO_PAT` is NOT set (checked 2026-11-11):
+  the user has to `gh secret set MODIO_PAT --repo XargonWan/retroxr-mod-tardis`, else a release only warns on mod.io.
+- The 1st Doctor's way in and out is the hexagonal double door on the -Z wall (table's `door` overrides the converter's `meta.door`, which found the blue-grey panel on +Z); the rig in `console_room_1.tscn` stands in front of it facing +Z, and `_build_door` handles a door on either wall.
+- `tools/convert_solids.py` makes `models/interior/<id>_solids.json` (boxes for what is solid in the room's model at walking height: the 10th's pillars and railings, which `10_collision.glb` does not have; its docstring has the command, and its `--floor` must be the table's profile). `ConsoleRoom._build_solids` reads it. The 1st Doctor's armchair is a `CockpitSeat` (RetroXR's fixed seat) built by `_build_seats` from the table's `seats`; the 10th's way out is the exterior's own door leaf twice (`_build_door_leaves`). `emission_cap` limits the 10th model's glare.
+- A TARDIS made solid (a save, the way back) never runs `_show_parts`: whatever must start hidden (`Inside`, `Doorway`) is hidden when it is built. RetroXR's delete calls `drop_and_free()` on an object that has it: the TARDIS uses that to take off (from where it stood before being carried to the bin: `_rest_pose`).
+- `tools/render_cutouts.py` renders the TARDIS and each screwdriver on a transparent background into `src.local/res/`, for the
+  user's thumbnail collage.
 - Models: the originals live in `src.local/` (git-ignored, ~300 MB, has a `.gdignore` so Godot does not
   import it). Every converted GLB must have the same frame: origin on the grip, tip toward -Z, metres,
   LED mesh named `Led`, under 6000 triangles and at most 8 meshes, textures at 256 px (Quest 3 shares its budget with a room).
 
 ## Licences
 
-Each model's licence must travel with it: `CREDITS.txt` (shipped in the pack). The 10th Doctor's and
+Each model's licence must travel with it: `CREDITS.txt` (in the repository, and summarised in README.md and the release notes: the zip does not carry it, see above). The 10th Doctor's and
 the 5th's are CC BY 4.0 (attribution). The 11th's may require linking where it was
-used on the site (the user's recollection, unverified: read its page); other models and the sounds have no recorded licence: ask the user.
+used on the site (the user's recollection, unverified: read its page); other models and the sounds (interior-hum.mp3 included, added 2026-11-11 from `src.local/`) have no recorded licence: ask the user.
 
 ## Conventions
 
