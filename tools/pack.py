@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-"""Build the mod pack and deploy it to RetroXR's mods folder.
+"""Build the mod pack and deploy it to RetroXR's mods folder, for testing in the game.
 
     python3 tools/pack.py                  # build, verify, copy to ~/retroxr/mods/
     python3 tools/pack.py --no-deploy      # build into build/ only
     python3 tools/pack.py --mods-dir DIR   # deploy somewhere else
 
-Why not RetroXR's own Tools/mods/pack_mod.gd: it packs source files only (.gd .tscn .png ...) and
-skips the .glb and .mp3 this mod ships, which it expects to come from a full Godot export. This mod
-reads both at run time (GLTFDocument, AudioStreamMP3), so they need no import and travel as they are.
-The result is then put through pack_mod.gd --check, the loader's own reader, unless Godot is missing.
-
-Left out of the pack: CLAUDE.md (a .md is refused by RetroXR: it is also a Mega Drive ROM
-extension), tools/, tests/, src.local/ (the 300 MB of originals), .git, TODO*, build/.
+The zip is made by tools/pack_mod.py, the very packer the release workflow runs, so what is tested here is what is
+published (it takes the thumbnail from res/thumbnail.png, leaves out documentation, tests and the originals in src.local/,
+and carries the .glb and .mp3 files this mod reads at run time). This script adds what the runner cannot do: it has the
+pack read back by RetroXR's own loader (Tools/mods/pack_mod.gd --check, needs Godot) and copies it to the mods folder.
 """
 import argparse
 import json
@@ -19,28 +16,8 @@ import os
 import shutil
 import subprocess
 import sys
-import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INCLUDE_TOP = ["mod.json", "mod_main.gd", "mod_main.gd.uid", "thumbnail.png", "README.txt",
-               "CREDITS.txt", "scenes", "scripts", "models", "assets", "licenses"]
-# RetroXR refuses a pack carrying a program or a game: keep this list honest about what we ship.
-FORBIDDEN_EXT = {".md", ".so", ".dll", ".exe", ".iso", ".bin", ".zip", ".nes", ".sfc", ".chd"}
-
-
-def collect():
-    for top in INCLUDE_TOP:
-        path = os.path.join(ROOT, top)
-        if os.path.isfile(path):
-            yield top
-        elif os.path.isdir(path):
-            for dirpath, _dirs, files in os.walk(path):
-                for f in sorted(files):
-                    # .import files, and the textures Godot extracts next to a GLB when the project
-                    # scans it (the GLB carries its own): editor leftovers, not part of the mod.
-                    if f.endswith(".import") or (top == "models" and not f.endswith((".glb", ".json"))):
-                        continue
-                    yield os.path.relpath(os.path.join(dirpath, f), ROOT)
 
 
 def main():
@@ -55,14 +32,9 @@ def main():
     mod_id = manifest["id"]
     os.makedirs(os.path.join(ROOT, "build"), exist_ok=True)
     out = os.path.join(ROOT, "build", mod_id + ".zip")
-    n = 0
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        for rel in collect():
-            if os.path.splitext(rel)[1].lower() in FORBIDDEN_EXT:
-                sys.exit("refusing to pack %s: RetroXR would refuse the pack" % rel)
-            z.write(os.path.join(ROOT, rel), "mods/%s/%s" % (mod_id, rel.replace(os.sep, "/")))
-            n += 1
-    print("wrote %s: %d files, %.1f KB, version %s" % (out, n, os.path.getsize(out) / 1024, manifest["version"]))
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "pack_mod.py"), "--out", out])
+    if r.returncode != 0:
+        sys.exit("pack_mod.py failed: nothing deployed")
 
     if os.path.exists(args.godot) and os.path.isdir(args.project):
         r = subprocess.run([args.godot, "--headless", "--path", args.project,
@@ -73,7 +45,7 @@ def main():
         if not any("verified" in l for l in lines):
             sys.exit("pack_mod.gd --check did not verify the pack")
     else:
-        print("Godot or the RetroXR project not found: pack NOT verified")
+        print("Godot or the RetroXR project not found: pack NOT verified by RetroXR's loader")
 
     if not args.no_deploy:
         os.makedirs(args.mods_dir, exist_ok=True)

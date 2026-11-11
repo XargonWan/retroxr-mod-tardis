@@ -9,3 +9,4 @@ models/**/*.jpg
 models/**/*.png
 RELEASE.md
 dist/
+__pycache__/
