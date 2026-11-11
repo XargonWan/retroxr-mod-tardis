@@ -12,14 +12,14 @@ ambient_light_color = Color(0.3, 0.24, 0.12, 1)
 ambient_light_energy = 0.45
 tonemap_mode = 2
 glow_enabled = true
-glow_intensity = 0.5
-glow_strength = 0.9
+glow_intensity = 0.35
+glow_strength = 0.7
 
 ; The 10th Doctor's console room. The room's id is permanent: RetroXR keeps its save slots under it.
 ; Everything else (the model, the walls and floor to stand on, the lights, the door and the console)
 ; is built by console_room.gd, from the GLB and its JSON. The player comes in at the door (+Z), facing
-; the console at the middle (-Z). The room is drawn at the table's scale (0.55) and the rig stands
-; at the door's place scaled the same (0.526, 7.0 in the model's own metres); the ambient light is low, the roundels' amber and the rotor's cyan are
+; the console at the middle (-Z). The room is drawn at the table's scale (0.7) and the rig stands
+; at the door's place scaled the same (0.526, 7.0 in the model's own metres: 0.368, 4.9); the ambient light is low, the roundels' amber and the rotor's cyan are
 ; the room's own lights (ConsoleRooms.lights).
 [node name="Root" type="Node3D"]
 script = ExtResource("1_xrinit")
@@ -29,7 +29,7 @@ scene_id = "xenu.tardis:console_10"
 environment = SubResource("Env_console")
 
 [node name="PlayerRig" parent="." instance=ExtResource("2_playerrig")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.29, 0, 3.85)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.368, 0, 4.9)
 
 [node name="ConsoleRoom" type="Node3D" parent="."]
 script = ExtResource("3_room")

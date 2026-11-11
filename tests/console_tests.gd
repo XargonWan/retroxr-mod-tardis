@@ -17,7 +17,7 @@ const TARDIS_SCENE := "res://mods/xenu.tardis/scenes/tardis.tscn"
 const ROOM_SCRIPT := "res://mods/xenu.tardis/scripts/console_room.gd"
 const MENU_SCENE := "res://mods/xenu.tardis/scenes/console_menu_2d.tscn"
 const SCRATCH := "user://test_tardis_settings.json"
-const EXPECTED_CASES := 59
+const EXPECTED_CASES := 81
 
 var _cases := 0
 var _failed := 0
@@ -26,6 +26,7 @@ var _failed := 0
 func _ready() -> void:
 	_table()
 	_settings()
+	_forgotten()
 	await _travel()
 	await _console_room()
 	await _menu()
@@ -46,6 +47,8 @@ func _check(ok: bool, what: String) -> void:
 
 
 func _table() -> void:
+	_check(float(ConsoleRooms.ROOMS["1"]["door"]["centre"][2]) < 0.0 and float(ConsoleRooms.ROOMS["10"].get("opening", {}).get("top", 0.0)) > 0.0,
+		"the 1st Doctor's way out is the hexagonal door on the -Z wall (the table's), the 10th's keeps the converter's on +Z")
 	_check(ConsoleRooms.resolve_id("nope") == "1" and ConsoleRooms.DEFAULT_ID == "1", "an unknown console room is the default, the 1st Doctor's")
 	_check(ConsoleRooms.room_id_of("10") == "xenu.tardis:console_10" and ConsoleRooms.id_of_room("xenu.tardis:console_10") == "10",
 		"a room id is permanent and goes both ways")
@@ -71,12 +74,33 @@ func _settings() -> void:
 	Settings.set_console("10")
 	Settings.set_exterior("default")
 	_check(FileAccess.file_exists(SCRATCH) and Settings.console() == "10", "a choice is kept in a file")
+	_check(Settings.hum(), "the console rooms hum until the player says otherwise")
+	Settings.set_hum(false)
+	_check(not Settings.hum() and Settings.console() == "10", "the hum is switched off and kept, and the console room with it")
+	Settings.set_console("1")
+	Settings.set_console("10")
+	_check(not Settings.hum(), "choosing a console room does not switch the hum back on")
 	var f := FileAccess.open(SCRATCH, FileAccess.WRITE)
 	f.store_string('{"console": "gone", "exterior": "gone"}')
 	f.close()
 	_check(Settings.console() == "1" and Settings.exterior() == "default", "an id that is not known reads as the default")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SCRATCH))
 	Settings.path = Settings.PATH
+
+
+func _forgotten() -> void:
+	# a deleted TARDIS is not put back when the player comes out of a console room
+	var gone := Node3D.new()
+	add_child(gone)
+	gone.position = Vector3(2, 0, -1)
+	Travel.origin = {"room": "bedroom", "tardis": Transform3D(Basis.IDENTITY, Vector3(5, 0, 5))}
+	Travel.forget(gone)
+	_check(Travel.origin.has("tardis"), "deleting some other TARDIS leaves the one entered where it was")
+	Travel.origin = {"room": "bedroom", "tardis": Transform3D(Basis.IDENTITY, Vector3(2, 0, -1))}
+	Travel.forget(gone)
+	_check(not Travel.origin.has("tardis") and Travel.origin["room"] == "bedroom", "deleting the one entered forgets it, and keeps the room to go back to")
+	gone.free()
+	Travel.origin = {}
 
 
 func _travel() -> void:
@@ -151,6 +175,12 @@ func _one_room(id: String) -> void:
 	room.set("console_id", id)
 	add_child(room)
 	await get_tree().process_frame
+	_check(room.hum != null and room.hum.playing and (room.hum.stream as AudioStreamMP3).loop and is_equal_approx(db_to_linear(room.hum.volume_db), 0.9),
+		"room %s: the interior hum is playing, looping, at 90%% of its volume" % id)
+	room.set_hum(false)
+	var silent: bool = not room.hum.playing
+	room.set_hum(true)
+	_check(silent and room.hum.playing, "room %s: the hum goes off and comes back on with the menu's switch" % id)
 	var meshes := room.find_children("*", "MeshInstance3D", true, false)
 	_check(meshes.size() >= 3, "room %s: the model is there: %d meshes" % [id, meshes.size()])
 	_check(room.rotors.size() == 2, "room %s: the time rotor is found" % id)
@@ -164,12 +194,29 @@ func _one_room(id: String) -> void:
 	var reach := 0.0
 	if has_hulls:
 		for cs in furniture.get_children():
+			if not ((cs as CollisionShape3D).shape is ConvexPolygonShape3D):
+				continue
 			for p: Vector3 in ((cs as CollisionShape3D).shape as ConvexPolygonShape3D).points:
 				reach = maxf(reach, (p + (cs as CollisionShape3D).position).length())
+	var floor_body := room.get_node_or_null("RoomBody") as StaticBody3D
+	var floor_cs := floor_body.get_child(0) as CollisionShape3D
+	var floor_top := floor_cs.position.y + (floor_cs.shape as CylinderShape3D).height / 2.0
+	_check(absf(floor_top - float(row.get("floor_offset", 0.0))) < 0.001, "room %s: the floor to walk on is at the table's height (%.3f)" % [id, floor_top])
+	var boxes := 0
+	var tallest := 0.0
+	if furniture != null:
+		for cs in furniture.get_children():
+			if (cs as CollisionShape3D).shape is BoxShape3D:
+				boxes += 1
+				tallest = maxf(tallest, ((cs as CollisionShape3D).shape as BoxShape3D).size.y)
+	_check(str(row.get("solids", "")).is_empty() or (boxes > 100 and tallest > 1.0), "room %s: the pillars and railings are solid: %d boxes, the tallest %.1f m" % [id, boxes, tallest])
+	var leaves: bool = room.get_node_or_null("DoorLeafRight") != null and room.get_node_or_null("DoorLeafLeft") != null
+	_check(leaves == bool(row.get("door_leaves", false)), "room %s: the way out is a pair of police box doors where the table says so (%s)" % [id, str(leaves)])
+	_check(room.seats.size() == (row.get("seats", []) as Array).size(), "room %s: what can be sat on is there: %d seats" % [id, room.seats.size()])
 	var wall: float = float(room.meta["wall_radius_p98"]) * room.room_scale
 	_check(not has_hulls or (reach > 1.0 and reach <= wall + 1.0), "room %s: its collision is scaled with it: reaches %.1f m, the wall is at %.1f" % [id, reach, wall])
 	var door_c: Array = room.meta["door"]["centre"]
-	_check(room.door_button.position.distance_to(Vector3(door_c[0], door_c[1], door_c[2]) * room.room_scale + Vector3(0, 0, -0.3 * room.room_scale)) < 0.01,
+	_check(room.door_button.position.distance_to(Vector3(door_c[0], door_c[1], door_c[2]) * room.room_scale + Vector3(0, 0, (-1.0 if float(door_c[2]) > 0.0 else 1.0) * 0.3 * room.room_scale)) < 0.01,
 		"room %s: the door's button is where the scaled door is" % id)
 	await get_tree().physics_frame
 	await get_tree().physics_frame
@@ -214,7 +261,7 @@ func _one_room(id: String) -> void:
 				one_sided += 1
 	_check(one_sided == 0, "room %s: every material is drawn on both sides (%d are not)" % [id, one_sided])
 	_check(room.door_button != null and room.door_button.require_trigger and room.find_children("*", "OmniLight3D", false, false).size() == ConsoleRooms.lights(id).size()
-		and (room.get_node_or_null("DoorLight") != null) == bool(row["door_light"]),
+		and (room.get_node_or_null("DoorLight") != null) == (bool(row["door_light"]) and not bool(row.get("door_leaves", false))),
 		"room %s: a door to press, the lights of its table, and a light in the doorway where the table says" % id)
 	_check(room.console.has_method("toggle_options_ui") and room.console.pointer.collision_layer == (1 << 20), "room %s: the console can be pointed at and has a menu" % id)
 	var rest: float = room.rotors[0].position.y
@@ -263,6 +310,10 @@ func _menu() -> void:
 	ui.leave_requested.connect(func() -> void: left.append(true))
 	(by_text.call("Leave the TARDIS") as Button).pressed.emit()
 	_check(left.size() == 1, "the menu has a way out, whatever becomes of the door")
+	var hum_said: Array = []
+	ui.hum_toggled.connect(func(on: bool) -> void: hum_said.append(on))
+	(by_text.call("Interior hum") as Button).pressed.emit()
+	_check(hum_said == [false], "the menu switches the hum: it was on, so it asks for off: %s" % [hum_said])
 	var reset := by_text.call("Reset") as Button
 	reset.pressed.emit()
 	_check(confirmed.is_empty() and reset.text.begins_with("Really"), "reset asks again")
@@ -284,6 +335,23 @@ func _panel() -> void:
 	Panel.toggle_for(console, null)
 	_check(not panel.visible, "and again closes it")
 	console.free()
+	# it floats over the console's top, on the player's side (not out in the room)
+	var on_it := preload("res://mods/xenu.tardis/scripts/console_menu.gd").new()
+	add_child(on_it)
+	on_it.setup(1.0, 0.8)
+	var head := Camera3D.new()
+	add_child(head)
+	head.position = Vector3(0, 1.6, 4)
+	Panel.toggle_for(on_it, head)
+	for i in 3:
+		await get_tree().process_frame
+	var shown := on_it.get_node("ConsolePanel") as Node3D
+	_check(shown.global_position.distance_to(Vector3(0, 0.8 + Panel.HOVER, 0.5)) < 0.01, "the menu floats on the console, toward the player: %s" % shown.global_position)
+	_check(on_it.pointer.collision_layer == 0, "with the menu up the console's pointing cylinder lets the ray through to it")
+	Panel.toggle_for(on_it, head)
+	_check(on_it.pointer.collision_layer == (1 << 20), "and the console can be pointed at again once the menu is shut")
+	on_it.free()
+	head.free()
 	await get_tree().process_frame
 
 

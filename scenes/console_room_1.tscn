@@ -16,8 +16,8 @@ glow_intensity = 0.2
 glow_strength = 0.7
 
 ; The 1st Doctor's console room (the default one). The room's id is permanent: RetroXR keeps its save slots under it.
-; Everything else is built by console_room.gd from the GLB and its JSON. The player comes in at the door (+Z),
-; facing the console at the middle (-Z). A bright white room: high ambient light, cool white roundel wash, a warm bulb
+; Everything else is built by console_room.gd from the GLB and its JSON. The player comes in at the hexagonal door (-Z wall),
+; facing the console at the middle (+Z). A bright white room: high ambient light, cool white roundel wash, a warm bulb
 ; in the rotor (ConsoleRooms.lights).
 [node name="Root" type="Node3D"]
 script = ExtResource("1_xrinit")
@@ -27,7 +27,7 @@ scene_id = "xenu.tardis:console_1"
 environment = SubResource("Env_console")
 
 [node name="PlayerRig" parent="." instance=ExtResource("2_playerrig")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.14, 0, 2.9)
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0.14, 0, -2.7)
 
 [node name="ConsoleRoom" type="Node3D" parent="."]
 script = ExtResource("3_room")
