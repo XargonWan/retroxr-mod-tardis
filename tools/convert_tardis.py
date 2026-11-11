@@ -28,11 +28,14 @@ ap.add_argument("--src", required=True)
 ap.add_argument("--out", required=True)
 ap.add_argument("--height", type=float, default=2.3)
 ap.add_argument("--max-tris", type=int, default=12000)
-# The door leaf's box in the SOURCE's frame, as fractions of the body's width/height (measured on
-# the model: posts at about 0.6 of the half width, the sign from 0.78 of the height).
-ap.add_argument("--leaf-x", default="0.03,0.50")
-ap.add_argument("--leaf-z", default="0.04,0.77")
-ap.add_argument("--leaf-front", type=float, default=0.55, help="faces at least this far out front (0..1 of the half depth)")
+# The door leaf's box in the model's own frame once it is scaled and centred (metres: x from the seam between the
+# two leaves to the hinge post, z from the foot of the leaf to the sign). Measured on the model: the seam is at x = 0,
+# the right leaf's outer edge at 0.462, the leaf from 0.073 to 1.771 high. They are planes, not "about": the leaf's
+# outline is CUT along them (see below), so it comes out straight.
+ap.add_argument("--leaf-x", default="0.0,0.462")
+ap.add_argument("--leaf-z", default="0.0727,1.771")
+# How deep the leaf is: it is one thin skin set back in the frame (y of its faces' centres, the front toward -y).
+ap.add_argument("--leaf-y", default="-0.47,-0.392")
 opt = ap.parse_args(argv)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -88,15 +91,23 @@ body = max(meshes(), key=lambda o: len(o.data.materials))  # the box: the only o
 half_w = (mx.x - mn.x) / 2
 half_d = (mx.y - mn.y) / 2
 height = mx.z - mn.z
-x0, x1 = (float(v) * half_w for v in opt.leaf_x.split(","))
-z0, z1 = (mn.z + float(v) * height for v in opt.leaf_z.split(","))
-y_front = -half_d * opt.leaf_front
+x0, x1 = (float(v) for v in opt.leaf_x.split(","))
+z0, z1 = (mn.z + float(v) for v in opt.leaf_z.split(","))
+y0, y1 = (float(v) for v in opt.leaf_y.split(","))
 select_only([body])
 bpy.ops.object.mode_set(mode="EDIT")
 bm = bmesh.from_edit_mesh(body.data)
+# Cut the front along the leaf's four edges first. Choosing whole faces by where their centre falls leaves a
+# staircase wherever a face straddles an edge (the mouldings, the window: the leaf's edge was jagged and a sliver
+# of window was left on the body); cutting along a plane first makes every face lie wholly on one side.
+for co, no in (((x0, 0, 0), (1, 0, 0)), ((x1, 0, 0), (1, 0, 0)), ((0, 0, z0), (0, 0, 1)), ((0, 0, z1), (0, 0, 1))):
+    near = [f for f in bm.faces if (body.matrix_world @ f.calc_center_median()).y <= y1]
+    geom = list(set(near) | {e for f in near for e in f.edges} | {v for f in near for v in f.verts})
+    bmesh.ops.bisect_plane(bm, geom=geom, plane_co=co, plane_no=no)
+EPS = 1e-5
 for f in bm.faces:
     c = body.matrix_world @ f.calc_center_median()
-    f.select_set(x0 <= c.x <= x1 and z0 <= c.z <= z1 and c.y <= y_front)
+    f.select_set(x0 - EPS <= c.x <= x1 + EPS and z0 - EPS <= c.z <= z1 + EPS and y0 - EPS <= c.y <= y1 + EPS)
 n_leaf = sum(1 for f in bm.faces if f.select)
 bmesh.update_edit_mesh(body.data)
 bpy.ops.mesh.separate(type="SELECTED")
