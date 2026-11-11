@@ -5,13 +5,14 @@
 ## one marked, because a drop-down is not something to operate with a laser.
 ##
 ## Emits (the panel does the work, so this stays a face):
-##   leave_requested, console_chosen(id), exterior_chosen(id), reset_confirmed, close_requested
+##   leave_requested, console_chosen(id), exterior_chosen(id), hum_toggled(on), reset_confirmed, close_requested
 extends Control
 
 signal close_requested
 signal leave_requested
 signal console_chosen(id: String)
 signal exterior_chosen(id: String)
+signal hum_toggled(on: bool)
 signal reset_confirmed
 
 const ConsoleRooms := preload("res://mods/xenu.tardis/scripts/console_rooms.gd")
@@ -28,6 +29,7 @@ var _root: VBoxContainer = null
 var _console_id := ""
 var _exterior_id := ""
 var _confirming := false
+var _hum_on := true
 var _reset_btn: Button = null
 
 
@@ -41,9 +43,10 @@ func _ready() -> void:
 
 
 ## Show the current choices.
-func populate(console_id: String, exterior_id: String) -> void:
+func populate(console_id: String, exterior_id: String, hum_on: bool = true) -> void:
 	_console_id = console_id
 	_exterior_id = exterior_id
+	_hum_on = hum_on
 	_confirming = false
 	if _root != null:
 		_rebuild()
@@ -67,6 +70,8 @@ func _rebuild() -> void:
 	_heading("Exterior")
 	for id: String in Exteriors.EXTERIORS:
 		_choice(str(Exteriors.EXTERIORS[id]["label"]), id == _exterior_id, func() -> void: exterior_chosen.emit(id))
+	_root.add_child(HSeparator.new())
+	_choice("Interior hum: " + ("on" if _hum_on else "off"), _hum_on, func() -> void: hum_toggled.emit(not _hum_on))
 	_root.add_child(HSeparator.new())
 	_reset_btn = Button.new()
 	_reset_btn.custom_minimum_size = Vector2(0, 46)

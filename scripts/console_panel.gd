@@ -1,6 +1,7 @@
-## ConsolePanel -- the console's floating menu: opened like every object's (point at the console and
-## press the left thumbstick, Tab on a desktop), it hangs in the air toward the player and turns to
-## face them. What its buttons do:
+## ConsolePanel -- the console's menu: opened like every object's (point at the console and press the
+## left thumbstick, Tab on a desktop), it floats just over the console's top, on the side the player is
+## standing, and turns to face them (it used to hang 2.6 m out toward the player and so wandered round the
+## room: the menu belongs ON the console). What its buttons do:
 ##   console room  -> kept (tardis_settings.gd); when the player is IN a console room, they are taken to
 ##                    the one chosen now (SceneManager.change_scene),
 ##   exterior      -> kept, and the TARDIS they will step out of wears it,
@@ -12,9 +13,10 @@ const Settings := preload("res://mods/xenu.tardis/scripts/tardis_settings.gd")
 const ConsoleRooms := preload("res://mods/xenu.tardis/scripts/console_rooms.gd")
 const Travel := preload("res://mods/xenu.tardis/scripts/tardis_travel.gd")
 const NODE_NAME := "ConsolePanel"
-## Where it hangs: this far toward the player from the console's middle, at chest height.
-const DISTANCE := 2.6
-const CHEST_HEIGHT := 1.3
+## Where it floats: over the console's top by this much (the panel is 0.62 m high: its middle is half of that
+## above the top, and a few centimetres of air), and this fraction of the console's radius toward the player.
+const HOVER := 0.34
+const TOWARD_PLAYER := 0.5
 
 var _console: Node3D = null
 
@@ -39,9 +41,22 @@ func show_for(console: Node3D, camera: Node3D) -> void:
 	_console = console
 	_camera = camera
 	global_position = _anchor()
+	# the menu is INSIDE the console's pointing cylinder, which would catch the ray before the menu does: it is let be
+	# while the menu is up (the menu's own close button, or the way out, shuts it)
+	_set_console_pointable(false)
 	visible = true
 	_ensure_ui_connected()
 	_populate()
+
+
+func hide_panel() -> void:
+	super()
+	_set_console_pointable(true)
+
+
+func _set_console_pointable(on: bool) -> void:
+	if is_instance_valid(_console) and _console.has_method("set_pointable"):
+		_console.call("set_pointable", on)
 
 
 func _get_ui() -> Control:
@@ -62,6 +77,7 @@ func _ensure_ui_connected() -> void:
 	ui.leave_requested.connect(_on_leave)
 	ui.console_chosen.connect(_on_console_chosen)
 	ui.exterior_chosen.connect(_on_exterior_chosen)
+	ui.hum_toggled.connect(_on_hum_toggled)
 	ui.reset_confirmed.connect(_on_reset)
 	_ui_connected = true
 
@@ -72,7 +88,7 @@ func _populate() -> void:
 		call_deferred("_populate")
 		return
 	var s := Settings.load_settings()
-	ui.populate(str(s["console"]), str(s["exterior"]))
+	ui.populate(str(s["console"]), str(s["exterior"]), bool(s["hum"]))
 
 
 func _on_console_chosen(id: String) -> void:
@@ -81,6 +97,14 @@ func _on_console_chosen(id: String) -> void:
 	if manager != null and Travel.in_console_room(manager) and ConsoleRooms.room_id_of(id) != str(manager.get("current_scene_id")):
 		manager.call("change_scene", ConsoleRooms.room_id_of(id))
 		return
+	_populate()
+
+
+func _on_hum_toggled(on: bool) -> void:
+	Settings.set_hum(on)
+	var room := _console.get_parent() if is_instance_valid(_console) else null
+	if room != null and room.has_method("set_hum"):
+		room.call("set_hum", on)
 	_populate()
 
 
@@ -110,7 +134,11 @@ func _target_node() -> Node3D:
 
 
 func _float_height() -> float:
-	return CHEST_HEIGHT
+	return _console_height() + HOVER
+
+
+func _console_height() -> float:
+	return float(_console.get("height")) if is_instance_valid(_console) and _console.get("height") != null else 1.0
 
 
 func _anchor() -> Vector3:
@@ -122,4 +150,5 @@ func _anchor() -> Vector3:
 		to_cam = Vector3(cam.global_position.x - _console.global_position.x, 0.0, cam.global_position.z - _console.global_position.z)
 	if to_cam.length() < 0.01:
 		to_cam = Vector3(0, 0, 1)
-	return _console.global_position + to_cam.normalized() * DISTANCE + Vector3(0, CHEST_HEIGHT, 0)
+	var radius := float(_console.get("radius")) if _console.get("radius") != null else 1.0
+	return _console.global_position + to_cam.normalized() * radius * TOWARD_PLAYER + Vector3(0, _float_height(), 0)
