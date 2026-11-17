@@ -21,7 +21,9 @@ const TYPE := "xenu.tardis:sonic_screwdriver"
 const SCENE := "res://mods/xenu.tardis/scenes/sonic_screwdriver.tscn"
 const LABEL := "Sonic Screwdriver"
 
-## id -> {label, led (it has a light in the show's canon AND a mesh to light), led_color}.
+## id -> {label, led (it has a light in the show's canon AND a mesh to light), led_color, brighten (a multiplier on the model's
+## colours: a texture that reads black in a dim room), metallic_max (a cap on how metallic it is: without reflections in the
+## room a metal surface shows its colour only as black)}.
 ## A `led` model's GLB has a mesh named "Led". The 2nd to 5th and the 12th have no light in the show
 ## or no part of the model to light.
 const MODELS := {
@@ -31,8 +33,8 @@ const MODELS := {
 	"5": {"label": "5th Doctor's Screwdriver", "led": false},
 	"10": {"label": "10th Doctor's Screwdriver", "led": true, "led_color": Color(0.25, 0.5, 1.0)},
 	"11": {"label": "11th Doctor's Screwdriver", "led": true, "led_color": Color(0.3, 1.0, 0.75)},
-	"12": {"label": "12th Doctor's Screwdriver", "led": false},
-	"13": {"label": "13th Doctor's Screwdriver", "led": true, "led_color": Color(1.0, 0.6, 0.2)},
+	"12": {"label": "12th Doctor's Screwdriver", "led": false, "brighten": 2.2},
+	"13": {"label": "13th Doctor's Screwdriver", "led": true, "led_color": Color(1.0, 0.6, 0.2), "brighten": 1.2, "metallic_max": 0.1},
 }
 
 
@@ -58,6 +60,27 @@ static func ids() -> Array:
 		if id != DEFAULT_ID:
 			out.append(id)
 	return out
+
+
+## "10th" for a button of the object's menu: the label's first word. The page is 340 px wide and a button of "10th Doctor"
+## took a third of it, so the eighth Doctor was off the edge.
+static func short_label(id: String) -> String:
+	return str(entry(id)["label"]).get_slice(" ", 0)
+
+
+## How many buttons one row of the object's menu holds.
+const MENU_ROW := 4
+
+
+## The Doctors for the object's menu, by number and MENU_ROW to a row: [{caption, ids}].
+static func menu_rows() -> Array:
+	var ids: Array = MODELS.keys()
+	ids.sort_custom(func(a: String, b: String) -> bool: return int(a) < int(b))
+	var rows: Array = []
+	for start in range(0, ids.size(), MENU_ROW):
+		var chunk := ids.slice(start, start + MENU_ROW)
+		rows.append({"caption": "Doctor: %s to %s" % [short_label(chunk[0]), short_label(chunk[-1])], "ids": chunk})
+	return rows
 
 
 ## The rows the hold-to-choose picker takes ({id, label, color}); the first is the default.

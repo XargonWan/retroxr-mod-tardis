@@ -18,7 +18,7 @@ const MAX_TRIS := 6000
 ## Cases a complete run makes. A function that dies half way (a script error aborts it) would
 ## still print `0 failed`, so a short count fails the run.
 ## The base cases, and what each model adds (see _every_model).
-const BASE_CASES := 56
+const BASE_CASES := 72
 const PER_MODEL_CASES := 9
 var EXPECTED_CASES := BASE_CASES + PER_MODEL_CASES * Models.MODELS.size()
 
@@ -35,6 +35,7 @@ func _ready() -> void:
 	await _use_cycle()
 	await _drop_while_humming()
 	await _every_model()
+	await _change_doctor()
 	await _two_screwdrivers_light_alone()
 	await _remote_control()
 	print("[tardis-tests] %d cases, %d failed" % [_cases, _failed])
@@ -256,6 +257,18 @@ func _remote_control() -> void:
 	_check(dev.presses.size() == 1, "1.1 s unbroken after it: pressed")
 	sd.end_use()
 
+	# Held across the fist, its tip points away: the hand's own forward aims instead
+	sd.rotation_degrees = Vector3(0, 90, 0)
+	await _physics_settle()
+	sd.hand_aim = func() -> Variant: return Transform3D(Basis.IDENTITY, Vector3.ZERO)
+	sd.advance(0.1)
+	_check(dev.outlined == true, "its tip pointing away, the hand pointing at the device: the device is outlined")
+	sd.hand_aim = Callable()
+	sd.advance(0.1)
+	_check(dev.outlined == false, "with no hand to aim by, the tip alone: not aimed at")
+	sd.rotation_degrees = Vector3.ZERO
+	await _physics_settle()
+
 	# What it cannot switch.
 	dev.presses.clear()
 	dev.power_enabled = false
@@ -308,6 +321,67 @@ func _remote_control() -> void:
 	sd.advance(3.0)
 	_check(sd.is_active() and fired.size() == 3 and calls.size() == 1, "pointing at nothing for 3 s: it hums, and calls the TARDIS once")
 	sd.end_use()
+	sd.queue_free()
+	await get_tree().process_frame
+
+
+## The object's menu lists the Doctors and picking one changes the model of the screwdriver already in the room, keeps the
+## id as what is saved, and moves the LED with it.
+func _change_doctor() -> void:
+	var sd := _spawn()
+	await get_tree().process_frame
+	var rows: Array = sd.options_choices()
+	var shown := 0
+	var widest := 0
+	for r: Variant in rows:
+		shown += ((r as Dictionary)["items"] as Array).size()
+		widest = maxi(widest, ((r as Dictionary)["items"] as Array).size())
+	_check(shown == Models.MODELS.size() and widest <= Models.MENU_ROW, "its menu lists every Doctor, %d to a row at most: %s" % [Models.MENU_ROW, rows])
+	_check(sd.display_name == "Sonic Screwdriver", "the menu is titled with a name, not the node's")
+	var selected := 0
+	for r: Variant in rows:
+		selected += 1 if int((r as Dictionary)["selected"]) >= 0 else 0
+	_check(selected == 1 and ((rows[1] as Dictionary)["items"] as Array)[int((rows[1] as Dictionary)["selected"])] == "10th", "exactly one is marked, the 10th")
+	var before := sd.find_children("*", "MeshInstance3D", false, false)
+	sd.begin_use()
+	sd.options_choose(1, 1)  # the second row's second: the 11th
+	await get_tree().process_frame
+	_check(sd.model_id == "11" and sd.get_meta(&"model_variant") == "11", "picking the 11th: it wears it and keeps the id to be saved")
+	var after := sd.find_children("*", "MeshInstance3D", false, false)
+	var stale := false
+	for m: Node in before:
+		stale = stale or (is_instance_valid(m) and m.get_parent() == sd)
+	_check(not after.is_empty() and not stale, "the 10th's meshes are gone and the 11th's are there (%d)" % after.size())
+	_check(sd.find_child("Led", false, false) != null and _led_energy(sd) > 1.0, "the 11th's light is lit, the screwdriver being in use")
+	sd.options_choose(1, 2)  # the 12th
+	await get_tree().process_frame
+	_check(sd.model_id == "12" and sd.find_child("Led", false, false) == null, "the 12th has no light to show")
+	sd.options_choose(1, 99)
+	sd.options_choose(7, 0)
+	_check(sd.model_id == "12", "an item or row that does not exist changes nothing")
+	var now: Array = sd.options_choices()
+	_check(int((now[1] as Dictionary)["selected"]) == 2 and int((now[0] as Dictionary)["selected"]) == -1, "the menu shows the one it wears now")
+	var count := sd.find_children("*", "MeshInstance3D", false, false).size()
+	sd.options_choose(1, 2)
+	_check(sd.find_children("*", "MeshInstance3D", false, false).size() == count, "choosing the one it wears does not draw it twice")
+	sd.end_use()
+	sd.options_choose(0, 0)  # the 2nd
+	await get_tree().process_frame
+	_check(sd.model_id == "2", "the first row's first is the 2nd Doctor")
+	sd.options_choose(1, 0)
+	await get_tree().process_frame
+	_check(sd.model_id == "10" and _led_energy(sd) == 0.0, "back to the 10th, light off as it is not in use")
+	# its menu, made AFTER the first change of Doctor, stays out of the outline too: drawn, its meshes made the menu measure
+	# "the object" taller each frame, and it rose out of sight (the outline's overlays count in that measure)
+	ObjectOptionsPanel.toggle_for(sd, null)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var panel := sd.get_node_or_null("ObjectOptionsPanel")
+	var meshes: Array = panel.find_children("*", "MeshInstance3D", true, false) if panel != null else []
+	var kept := not meshes.is_empty()
+	for m: Variant in meshes:
+		kept = kept and (m as Node).is_in_group(&"outline_exclude")
+	_check(kept, "the object's menu, opened after a change of Doctor, is kept out of the outline (%d meshes)" % meshes.size())
 	sd.queue_free()
 	await get_tree().process_frame
 

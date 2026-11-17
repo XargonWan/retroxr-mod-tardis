@@ -34,7 +34,7 @@ MODELS = {
     # The "posed" FBX holds two copies of the screwdriver (the .001 parts are a second pose, the tip
     # further out). The first is kept. Its tip is at -X. The glass tip is the LED.
     "11": ("11/Unconfirmed 475537.crdownload", "source/screwPosed.fbx",
-           ["--length", "0.111", "--tip=-X", "--led-object", "tip_refr",
+           ["--length", "0.20", "--tip=-X", "--led-object", "tip_refr",
             "--drop", r"handle\.001|tip\.001|bolt\.001|tip_refr\.001|cog\.00[4-7]",
             "--tex", "screwdriver_tip:Material"]),
     "12": ("12/doctor-who-sonic-screwdriver-free-download.zip", "source/Doctor Who Sonic Screwdriver (12th).fbx",
