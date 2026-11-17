@@ -1,8 +1,9 @@
 ## Tardis -- the TARDIS exterior: a big blue box you summon with the sonic screwdriver and can move.
 ##
 ## It is handled like an arcade cabinet (it is as big and as awkward to move): taken by HOLDING the
-## grab on it for a second, never thrown, set down by aiming at the floor where a yellow rectangle
-## shows its base (GroundPlacement), and it STANDS: dropped leaning, it turns upright again. Set
+## grab on it for a second, never thrown, set down by aiming at the floor where RetroXR's footprint shows its
+## base (RayFloorPreview, switched on by `ray_floor_preview_default`: the floor placement RetroXR now has for every
+## pickable; GroundPlacement is gone from it), and it STANDS: dropped leaning, it turns upright again. Set
 ## down, it vanishes and materialises again where it was put, as it does when it is summoned.
 ##
 ## MATERIALISING is the classic (measured on a reference clip of the show): it does not move, it forms
@@ -99,6 +100,8 @@ const VR_DOOR_SCRIPT := "res://Scripts/Objects/room/vr_door.gd"
 ## Where the VRDoor script is looked for: the suite points it at a stand-in (the real one needs the engine's extensions).
 static var door_script_path := VR_DOOR_SCRIPT
 ## Pulled this far open (degrees), the player goes in; and the leaf is seen to open a moment first.
+## How far the handle must be turned (0..1 of VRDoor's knob, +-60 degrees) before the latch lets go: 0.1 is six degrees.
+const UNLATCH_TURN := 0.1
 const ENTER_DEGREES := 30.0
 const ENTER_DELAY := 0.35
 const CENTER_OF_MASS_Y := 0.6
@@ -142,7 +145,6 @@ var _sfx: AudioStreamPlayer3D = null
 var _door_sfx: AudioStreamPlayer3D = null
 var _button: VRButton = null
 var _signal_held := false
-var _placer: Node = null
 ## Whether the white light behind the door is drawn: only while the door is open. Shut, a crack of the seam between the leaves
 ## let it leak through as a line of dots.
 var _light_on := false
@@ -177,21 +179,49 @@ func _enter_tree() -> void:
 
 func _ready() -> void:
 	super()
+	if _in_console_room():
+		_refuse()
+		return
 	print("[xenu.tardis %s] a TARDIS is in the room" % mod_version())
 	_sfx = _player("Sfx")
 	_door_sfx = _player("DoorSfx")
 	_build_door_control()
-	_placer = GroundPlacement.new()
-	_placer.name = "GroundPlacement"
-	_placer.host = self
-	_placer.set_footprint(Exteriors.entry(exterior)["footprint"] as Vector2)
-	add_child(_placer)
+	# RetroXR's own floor placement (a held ray shows the base's footprint and a release stands it there). The property is
+	# on every pickable of a RetroXR that has RayFloorPreview; an older one has no such property and just drops it.
+	if &"ray_floor_preview_default" in self:
+		set(&"ray_floor_preview_default", true)
 	grabbed.connect(func(_p: Variant = null, _by: Variant = null) -> void: _signal_held = true)
 	dropped.connect(_on_dropped)
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = Vector3(0.0, CENTER_OF_MASS_Y, 0.0)
 	angular_damp = maxf(angular_damp, 2.0)
 	set_process(false)
+
+
+## The SceneManager that says which room this is (tests give a fake one; empty: RetroXR's).
+var scene_manager: Object = null
+
+
+## A console room is inside the TARDIS: there is no outside there to put one in. The summon by the screwdriver already
+## does nothing in one; this is for every other way a TARDIS gets made (the SPAWN menu's Objects tab, a slot saved
+## before this was refused).
+func _in_console_room() -> bool:
+	return Travel.in_console_room(scene_manager if scene_manager != null else Travel.manager_of(self))
+
+
+## Not even tried: no landing, no model, only the fizzle of a landing that failed, heard at once, and it is gone.
+func _refuse() -> void:
+	print("[xenu.tardis %s] a TARDIS asked for in a console room: refused" % mod_version())
+	remove_from_group(GROUP)
+	visible = false
+	freeze = true
+	collision_layer = 0
+	collision_mask = 0
+	set_physics_process(false)
+	set_process(false)
+	var scene := get_tree().current_scene
+	preload("res://mods/xenu.tardis/scripts/tardis_summon.gd").refuse(scene if scene != null else get_parent(), global_position)
+	queue_free()
 
 
 # ── how it is handled (as a cabinet) ──────────────────────────────────────────
@@ -271,14 +301,14 @@ func drop_and_free() -> void:
 		angular_velocity = Vector3.ZERO
 
 
-## Put down: it goes, and comes back where it was put (GroundPlacement stands it first, deferred).
+## Put down: it goes, and comes back where it was put (RetroXR's placement stands it first, deferred).
 func _on_dropped(_p: Variant = null) -> void:
 	_signal_held = false
 	if state == State.SOLID and not _being_deleted():
 		_land_if_solid.call_deferred()
 
 
-## The landing after a drop, a frame later: GroundPlacement has stood it up, and a delete that came with the drop (the bin) has
+## The landing after a drop, a frame later: the placement has stood it up, and a delete that came with the drop (the bin) has
 ## already started the take-off, which must not be overwritten by a landing.
 func _land_if_solid() -> void:
 	if state == State.SOLID and not _leaving:
@@ -583,6 +613,9 @@ func _build_vr_door() -> bool:
 	door.set("swing", 0)  # TOWARD_POSITIVE_Z: it opens outward
 	door.set("open_deg", float(Exteriors.entry(exterior)["door_open_deg"]))
 	door.set("self_closing", true)  # let go and it eases shut
+	# A pull handle is not a doorknob: VRDoor's default asks the wrist for 60% of a +-60 degree turn (36 degrees) before the latch lets go,
+	# and a hand that only grips and pulls never gives it, so the door felt stuck. A twist of a few degrees is enough.
+	door.set("unlatch_turn", UNLATCH_TURN)
 	door.set("leaf_collision", false)
 	door.set("width", width)
 	door.set("height", float(leaf["height"]))
@@ -593,8 +626,8 @@ func _build_vr_door() -> bool:
 	door.set("log_name", "tardis")
 	add_child(door)
 	_vr_door = door
-	# the model's own leaf hangs on it (the plain one it built is hidden); the handle is the model's white dot, so its
-	# grab is an empty node at that place and the brass knob it would draw is hidden
+	# the model's own leaf hangs on it (the plain one it built is hidden); the handle is the model's own black pull handle, so
+	# the grab is an empty node at that place and the brass knob it would draw is hidden
 	door.call("dress_leaf", _door)
 	var grab := Node3D.new()
 	grab.name = "HandleGrab"

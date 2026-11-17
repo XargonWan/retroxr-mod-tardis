@@ -10,6 +10,7 @@ var hinge_side := -1
 var swing := -1
 var open_deg := 0.0
 var self_closing := false
+var unlatch_turn := 0.6
 var leaf_collision := true
 var width := 0.0
 var height := 0.0

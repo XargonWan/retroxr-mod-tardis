@@ -77,8 +77,11 @@ static func candidates(eye: Vector2, forward: Vector2) -> Array[Vector2]:
 
 ## The pose of the best free spot: {position, yaw} (its front toward the player), or {} when there is
 ## none. `eye` is the player's head, `floor_y` the floor they stand on.
+##
+## `stats`, when given, is filled with how many spots were tried and why each failed ("blocked", "floor", "view"):
+## the game's log has it, since a landing that fails in a room that looks empty can only be understood from that.
 static func find_spot(space: PhysicsDirectSpaceState3D, eye: Vector3, forward: Vector3, floor_y: float,
-		exclude: Array[RID] = []) -> Dictionary:
+		exclude: Array[RID] = [], stats: Dictionary = {}) -> Dictionary:
 	var flat_eye := Vector2(eye.x, eye.z)
 	var tested := 0
 	for p: Vector2 in candidates(flat_eye, Vector2(forward.x, forward.z)):
@@ -86,8 +89,12 @@ static func find_spot(space: PhysicsDirectSpaceState3D, eye: Vector3, forward: V
 		if tested > MAX_TESTS:
 			break
 		var yaw := atan2(eye.x - p.x, eye.z - p.y)
-		if is_free(space, Vector3(p.x, floor_y, p.y), yaw, eye, exclude):
+		var why := why_not(space, Vector3(p.x, floor_y, p.y), yaw, eye, exclude)
+		if why.is_empty():
+			stats["tested"] = tested
 			return {"position": Vector3(p.x, floor_y, p.y), "yaw": yaw}
+		stats[why] = int(stats.get(why, 0)) + 1
+	stats["tested"] = tested
 	return {}
 
 
@@ -95,6 +102,13 @@ static func find_spot(space: PhysicsDirectSpaceState3D, eye: Vector3, forward: V
 ## floor under all of its base, and be seen from `eye`.
 static func is_free(space: PhysicsDirectSpaceState3D, pos: Vector3, yaw: float, eye: Vector3,
 		exclude: Array[RID] = []) -> bool:
+	return why_not(space, pos, yaw, eye, exclude).is_empty()
+
+
+## What is wrong with that spot: "" when nothing, else "blocked" (the box overlaps something), "floor" (no floor
+## under the base at the player's floor height) or "view" (the room's walls hide it from `eye`).
+static func why_not(space: PhysicsDirectSpaceState3D, pos: Vector3, yaw: float, eye: Vector3,
+		exclude: Array[RID] = []) -> String:
 	var basis := Basis(Vector3.UP, yaw)
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(BOX.x, BOX.y - LIFT, BOX.z)
@@ -104,7 +118,7 @@ static func is_free(space: PhysicsDirectSpaceState3D, pos: Vector3, yaw: float, 
 	q.collision_mask = BLOCK_MASK
 	q.exclude = exclude
 	if not space.intersect_shape(q, 1).is_empty():
-		return false
+		return "blocked"
 	# the floor under the middle and the four corners: not the edge of the map, not a hole
 	for off: Vector3 in [Vector3.ZERO, Vector3(1, 0, 1), Vector3(-1, 0, 1), Vector3(1, 0, -1), Vector3(-1, 0, -1)]:
 		var at := pos + basis * (off * Vector3(BOX.x, 0, BOX.z) * 0.45)
@@ -113,12 +127,12 @@ static func is_free(space: PhysicsDirectSpaceState3D, pos: Vector3, yaw: float, 
 		ray.exclude = exclude
 		var hit := space.intersect_ray(ray)
 		if hit.is_empty() or absf((hit["position"] as Vector3).y - pos.y) > FLOOR_TOLERANCE:
-			return false
+			return "floor"
 	# seen from the player: not behind a wall, not in the next room
 	var see := PhysicsRayQueryParameters3D.create(eye, pos + Vector3(0, 1.0, 0))
 	see.collision_mask = WORLD_MASK
 	see.exclude = exclude
-	return space.intersect_ray(see).is_empty()
+	return "" if space.intersect_ray(see).is_empty() else "view"
 
 
 ## The floor the player stands on: the XR origin's height, else the world's zero (as GroundPlacement).
@@ -129,6 +143,21 @@ static func floor_y(cam: Camera3D) -> float:
 			return (node as XROrigin3D).global_position.y
 		node = node.get_parent()
 	return 0.0
+
+
+## The floor under the player, as the physics world has it: a ray from the head straight down onto the room (layer 1).
+## The XR origin's height is not always the floor (a room whose floor is raised, a play space set up seated, a rug),
+## and a spot is judged against this height: with the wrong one NO spot has a floor under it and nothing can land.
+## `fallback` (the origin's height) when the ray meets nothing.
+static func ground_y(space: PhysicsDirectSpaceState3D, eye: Vector3, fallback: float,
+		exclude: Array[RID] = []) -> float:
+	var ray := PhysicsRayQueryParameters3D.create(eye, eye + Vector3(0, -3.5, 0))
+	ray.collision_mask = WORLD_MASK
+	ray.exclude = exclude
+	var hit := space.intersect_ray(ray)
+	if hit.is_empty() or (hit["normal"] as Vector3).y < 0.7:
+		return fallback
+	return (hit["position"] as Vector3).y
 
 
 ## Call the TARDIS for `caller` (the screwdriver): returns the TARDIS it made, materialising, or null
@@ -148,11 +177,26 @@ static func summon(caller: Node3D) -> Node3D:
 	var exclude: Array[RID] = []
 	if caller is CollisionObject3D:
 		exclude.append((caller as CollisionObject3D).get_rid())
-	var spot := find_spot(caller.get_world_3d().direct_space_state, eye, flat, floor_height, exclude)
+	var space := caller.get_world_3d().direct_space_state
+	var ground := ground_y(space, eye, floor_height, exclude)
+	var stats := {}
+	var spot := find_spot(space, eye, flat, ground, exclude, stats)
+	if spot.is_empty() and not is_equal_approx(ground, floor_height):
+		spot = find_spot(space, eye, flat, floor_height, exclude, stats)  # the origin's height, in case the ray found a table
+	print("[xenu.tardis] landing: eye %s facing %s, floor %.2f (origin %.2f), %s: %s" % [eye.snapped(Vector3.ONE * 0.01),
+		flat.normalized().snapped(Vector3.ONE * 0.01), ground, floor_height,
+		"spot %s" % (spot["position"] as Vector3).snapped(Vector3.ONE * 0.01) if not spot.is_empty() else "NO SPOT", stats])
 	if spot.is_empty():
 		fail(caller.get_tree().current_scene, eye)
 		return null
-	var tardis := (load(TARDIS_SCENE) as PackedScene).instantiate() as Node3D
+	var scene := load(TARDIS_SCENE) as PackedScene
+	var tardis := scene.instantiate() as Node3D if scene != null else null
+	if tardis == null or not tardis.has_method("materialize"):
+		push_warning("[xenu.tardis] the TARDIS scene did not build (its script does not compile?): nothing lands")
+		if tardis != null:
+			tardis.free()
+		fail(caller.get_tree().current_scene, eye)
+		return null
 	caller.get_tree().current_scene.add_child(tardis)
 	tardis.global_transform = Transform3D(Basis(Vector3.UP, float(spot["yaw"])), spot["position"] as Vector3)
 	tardis.call("materialize")
@@ -179,6 +223,21 @@ static func fail(parent: Node, at: Vector3) -> Node3D:
 		landing.stop()
 		fizzle.play())
 	fizzle.finished.connect(holder.queue_free)
+	return holder
+
+
+## In a console room (inside the TARDIS) there is no outside to land in: the TARDIS does not try. Only the last sound of a
+## failed landing, the fizzle, is heard, at once, with none of the landing before it. Returns the holder.
+static func refuse(parent: Node, at: Vector3) -> Node3D:
+	push_warning("[xenu.tardis] a console room is inside the TARDIS: it does not land here")
+	var holder := Node3D.new()
+	holder.name = "TardisRefused"
+	parent.add_child(holder)
+	holder.global_position = at
+	var fizzle := _fail_player("Fizzle", distortion(), 4.0)
+	holder.add_child(fizzle)
+	fizzle.finished.connect(holder.queue_free)
+	fizzle.play()
 	return holder
 
 

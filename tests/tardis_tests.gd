@@ -14,7 +14,9 @@ const Exteriors := preload("res://mods/xenu.tardis/scripts/tardis_exteriors.gd")
 const TARDIS_SCENE := "res://mods/xenu.tardis/scenes/tardis.tscn"
 const SCREWDRIVER_SCENE := "res://mods/xenu.tardis/scenes/sonic_screwdriver.tscn"
 const Tardis := preload("res://mods/xenu.tardis/scripts/tardis.gd")
-const EXPECTED_CASES := 87
+## The suite runs on the button door unless a case says otherwise: a RetroXR that has VRDoor would hang the leaf on one.
+const NO_VR_DOOR := "res://nothing/vr_door.gd"
+const EXPECTED_CASES := 95
 
 var _cases := 0
 var _failed := 0
@@ -22,6 +24,7 @@ var _room: Node3D = null
 
 
 func _ready() -> void:
+	Tardis.door_script_path = NO_VR_DOOR
 	_pure()
 	await _the_scene()
 	await _vr_door()
@@ -35,6 +38,7 @@ func _ready() -> void:
 	await _landing_spot()
 	await _screwdriver_calls_it()
 	await _no_room()
+	await _not_in_a_console_room()
 	print("[tardis-tests] %d cases, %d failed" % [_cases, _failed])
 	if _cases != EXPECTED_CASES:
 		print("[tardis-tests] FAIL ran %d cases, expected %d: a case aborted, or EXPECTED_CASES is stale" % [_cases, EXPECTED_CASES])
@@ -160,7 +164,8 @@ func _the_scene() -> void:
 	var meshes := t.find_children("*", "MeshInstance3D", false, false)
 	_check(meshes.size() >= 4, "its meshes are direct children (the highlight looks there): %d" % meshes.size())
 	_check(t.find_child("DoorR", false, false) is MeshInstance3D, "the door leaf is a mesh of its own")
-	_check(t.get_node_or_null("DoorButton") != null and t.get_node_or_null("GroundPlacement") != null, "a door button and a ground placement")
+	_check(t.get_node_or_null("DoorButton") != null, "a door button")
+	_check(not (&"ray_floor_preview_default" in t) or bool(t.get(&"ray_floor_preview_default")), "it asks RetroXR for its floor placement (ray_floor_preview_default)")
 	var lit := 0
 	for mi: Node in meshes:
 		var m3 := mi as MeshInstance3D
@@ -194,8 +199,9 @@ func _vr_door() -> void:
 	var expect_at := Vector3(0.462 - 0.231, t._door.position.y, t._door.position.z)
 	_check(fake != null and fake.leaf == t._door and fake.position.is_equal_approx(expect_at) and is_equal_approx(float(fake.width), 0.462),
 		"a VRDoor hangs on the leaf, at its bottom middle: %s" % [fake.position if fake != null else "none"])
-	_check(fake != null and t.get_node_or_null("DoorButton") == null and (fake.knob_position as Vector2).is_equal_approx(Vector2(0.034 - fake.position.x, 0.945 - fake.position.y)),
+	_check(fake != null and t.get_node_or_null("DoorButton") == null and (fake.knob_position as Vector2).is_equal_approx(Vector2(0.032 - fake.position.x, 1.145 - fake.position.y)),
 		"with a VRDoor there is no button over the front, and the handle is where the model's is")
+	_check(fake != null and float(fake.unlatch_turn) <= 0.15, "a pull handle lets the latch go on a few degrees of twist, not VRDoor's 36: %s" % [fake.unlatch_turn if fake != null else "none"])
 	var went: Array = []
 	t.travel_handler = func() -> void: went.append(true)
 	var used: Array = []
@@ -210,7 +216,7 @@ func _vr_door() -> void:
 	await get_tree().create_timer(Tardis.ENTER_DELAY + 0.3).timeout
 	_check(went.size() == 1 and used.size() == 1 and fake.closed and not (t.get_node("Inside") as MeshInstance3D).visible,
 		"pulled 30 degrees open: in, once, the door shut behind (it is saved shut) and its light off: %d, %d" % [went.size(), used.size()])
-	Tardis.door_script_path = Tardis.VR_DOOR_SCRIPT
+	Tardis.door_script_path = NO_VR_DOOR
 	t.queue_free()
 	cam.queue_free()
 	await get_tree().process_frame
@@ -458,8 +464,6 @@ func _upright() -> void:
 	await _frames(40)
 	var now: float = t.global_basis.y.angle_to(Vector3.UP)
 	_check(now < start * 0.5, "dropped leaning, it turns upright again: %.0f -> %.0f degrees" % [rad_to_deg(start), rad_to_deg(now)])
-	var placer := t.get_node("GroundPlacement")
-	_check(placer.footprint.is_equal_approx(Exteriors.entry("default")["footprint"] as Vector2), "its yellow rectangle is the size of its base")
 	t.queue_free()
 	await get_tree().process_frame
 
@@ -490,6 +494,18 @@ func _landing_spot() -> void:
 	_new_room(false)
 	await _frames()
 	_check(Summon.find_spot(space, eye, Vector3(0, 0, -1), 0.0).is_empty(), "no floor (outside the map): no spot")
+	# a floor whose top is not where the XR origin says (raised, or a play space set up seated): the floor is MEASURED under the
+	# player, and with the origin's height nothing at all could land
+	_new_room(false)
+	_block(1, Vector3(40, 0.2, 40), Vector3(0, 0.2, 0))
+	await _frames()
+	var ground := Summon.ground_y(space, eye, 0.0)
+	_check(is_equal_approx(ground, 0.3), "the floor under the player is measured: %.2f" % ground)
+	var stats := {}
+	var on_it := Summon.find_spot(space, eye, Vector3(0, 0, -1), ground, [], stats)
+	_check(not on_it.is_empty() and Summon.find_spot(space, eye, Vector3(0, 0, -1), 0.0).is_empty(),
+		"a raised floor: it lands on it by the measured height, and finds nothing by the origin's: %s" % [stats])
+	_check(Summon.ground_y(space, Vector3(0, 6, 40), 0.0) == 0.0, "no floor under the head: the origin's height")
 
 
 func _screwdriver_calls_it() -> void:
@@ -561,4 +577,39 @@ func _no_room() -> void:
 	sd.end_use()
 	sd.queue_free()
 	cam.queue_free()
+	await get_tree().process_frame
+
+
+class FakeManager extends Node:
+	var current_scene_id := "bedroom"
+
+
+## A TARDIS made in a console room (the SPAWN menu's Objects tab, a slot saved by a build that allowed it) does not try to
+## land: it is gone at once, with the fizzle of a failed landing and none of the landing before it. In any other room it
+## stays, as it always did.
+func _not_in_a_console_room() -> void:
+	_new_room()
+	var mgr := FakeManager.new()
+	add_child(mgr)
+	var ok := (load(TARDIS_SCENE) as PackedScene).instantiate() as Node3D
+	ok.set("scene_manager", mgr)
+	_room.add_child(ok)
+	await get_tree().process_frame
+	_check(is_instance_valid(ok) and not ok.is_queued_for_deletion() and ok.visible, "in the bedroom a TARDIS made by the menu stays")
+	ok.queue_free()
+	await get_tree().process_frame
+	mgr.current_scene_id = "xenu.tardis:console_1"
+	var refused := (load(TARDIS_SCENE) as PackedScene).instantiate() as Node3D
+	refused.set("scene_manager", mgr)
+	_room.add_child(refused)
+	await get_tree().process_frame
+	_check(not is_instance_valid(refused) or refused.is_queued_for_deletion(), "in a console room it is turned away at once")
+	_check(not Summon.present(get_tree()), "and no TARDIS counts as being there (a summon after it is not blocked)")
+	var fizzle: Node = null
+	var landing := false
+	for h: Node in get_tree().current_scene.find_children("TardisRefused", "", true, false) if get_tree().current_scene != null else []:
+		fizzle = h.get_node_or_null("Fizzle")
+		landing = h.get_node_or_null("Landing") != null
+	_check(fizzle != null and not landing, "it is the fizzle that is heard, with no landing sound before it")
+	mgr.queue_free()
 	await get_tree().process_frame

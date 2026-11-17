@@ -20,11 +20,13 @@ const EXTERIORS := {
 		"door": "DoorR",
 		"door_open_deg": 100.0,
 		# The leaf as RetroXR's VRDoor wants it (when RetroXR has one): its size in metres, and where its handle is in the TARDIS's frame
-		# (the white dot on the leaf, near the seam between the leaves). The hinge is the leaf's origin.
-		"leaf": {"width": 0.462, "height": 1.698, "thickness": 0.112, "knob": Vector2(0.034, 0.945)},
-		# The white of the model (the window panes and the lettering of POLICE PUBLIC CALL BOX are Material.001, the door's
-		# panes Material.005) is lit as the lantern is, but gently: an emission of this energy, white.
-		"glow_materials": ["Material.001", "Material.005"],
+		# (the middle of the black pull handle by the seam: x 0.032, y 1.10 to 1.19. The white dot below it, at y 0.945, is the LOCK:
+		# it is not where a hand takes hold). The hinge is the leaf's origin.
+		"leaf": {"width": 0.462, "height": 1.698, "thickness": 0.112, "knob": Vector2(0.032, 1.145)},
+		# The white of the model (the window panes and the lettering of POLICE PUBLIC CALL BOX are Material.001) is lit as the lantern is, but gently: an emission of this energy, white.
+		"glow_materials": ["Material.001"],
+		# the lock (Material.005, the white dot on the door's leaf) is a brass plate, neither white nor lit
+		"paint": {"Material.005": Color(0.34, 0.26, 0.1)},
 		"glow_energy": 0.5,
 		# The model's own blue stays as it is: it was painted lighter once (tardis_look.gd can: a `paint` table, material name ->
 		# colour) and the user preferred the original.
