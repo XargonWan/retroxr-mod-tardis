@@ -29,6 +29,8 @@ OUT=/tmp godot --path $RETROXR/RetroXR res://mods/xenu.tardis/tests/render_tardi
 ID=1 OUT=/tmp godot --path $RETROXR/RetroXR res://mods/xenu.tardis/tests/render_room_probe.tscn   # a console room (ID: its table id), + the ray to its door
 OUT=/tmp godot --path $RETROXR/RetroXR res://mods/xenu.tardis/tests/render_bedroom_probe.tscn    # the TARDIS landing in RetroXR's own bedroom, 8 frames a second
 OUT=/tmp godot --path $RETROXR/RetroXR res://mods/xenu.tardis/tests/render_bedroom_variants.tscn # the ghost drawn four ways in that room
+# What a console room costs (draw calls, triangles, video memory, lights; ID: table id; add MATS=1 to list the materials)
+ID=10 godot --path $RETROXR/RetroXR --rendering-method mobile res://mods/xenu.tardis/tests/render_perf_probe.tscn 2>&1 | grep -a "^\[perf\]"
 # Build + verify + DEPLOY to ~/retroxr/mods/xenu.tardis.zip
 python3 tools/pack.py
 # Convert an original model (Blender 4.2 is at ~/gits/RetroQUEST/blender-4.2.3-linux-x64/blender)
@@ -96,11 +98,12 @@ blender -b -P tools/render_lineup.py -- /tmp/lineup.png 2 3 4 5 10 11 12 13   # 
   it works in the checkout and fails in the pack. The meshes are made direct children of the node,
   where `PickableHighlight` looks. Use is the pickable's own `action_pressed`/`action_released` (trigger;
   Shift + click on desktop) **and** the holding controller's `ax_button` polled in `_process`.
+- In VR the screwdriver aims first along its own tip, then along the holding hand's forward (`hand_aim`): a pickable with no grab point stays as it was taken, often across the fist. The log says once per hold how far the tip is off the hand (`screwdriver held in a headset: ...`).
 - It is also a remote: held on a device (anything in RetroXR's `remote_target` group, `RemoteTarget`) for
   `TARGET_HOLD` (0.9 s) with the button down, it presses the device's `power` cell once per press. The
   aim is the TV remote's (cone from the tip in VR, crosshair on desktop, layer 21 `PointerArea`s). The
   tests build a fake device (`tests/fake_remote_device.gd`).
-- `scripts/tardis.gd` is the TARDIS (a cabinet-like pickable: hold-to-grab, never thrown, `GroundPlacement`,
+- `scripts/tardis.gd` is the TARDIS (a cabinet-like pickable: hold-to-grab, never thrown, floor placement by RetroXR's `ray_floor_preview_default`,
   stands itself upright). It is a `RemoteTarget` with one `power` cell that sends it away, so the
   screwdriver held on it does that with no TARDIS-specific code in the screwdriver. Held on NOTHING, the
   screwdriver calls `TardisSummon.summon` (tests replace it with `summon_handler`). Where it lands is
@@ -168,7 +171,7 @@ blender -b -P tools/render_lineup.py -- /tmp/lineup.png 2 3 4 5 10 11 12 13   # 
   `fix`/`perf` patch): `mod.json`'s is not bumped by hand. The repository secret `MODIO_PAT` is NOT set (checked 2026-11-11):
   the user has to `gh secret set MODIO_PAT --repo XargonWan/retroxr-mod-tardis`, else a release only warns on mod.io.
 - The 1st Doctor's way in and out is the hexagonal double door on the -Z wall (table's `door` overrides the converter's `meta.door`, which found the blue-grey panel on +Z); the rig in `console_room_1.tscn` stands in front of it facing +Z, and `_build_door` handles a door on either wall.
-- `tools/convert_solids.py` makes `models/interior/<id>_solids.json` (boxes for what is solid in the room's model at walking height: the 10th's pillars and railings, which `10_collision.glb` does not have; its docstring has the command, and its `--floor` must be the table's profile). `ConsoleRoom._build_solids` reads it. The 1st Doctor's armchair is a `CockpitSeat` (RetroXR's fixed seat) built by `_build_seats` from the table's `seats`; the 10th's way out is the exterior's own door leaf twice (`_build_door_leaves`). `emission_cap` limits the 10th model's glare.
+- `tools/convert_solids.py` makes `models/interior/<id>_solids.json` (the 10th has two: `10_core.json`, the console and the rotor, 10 cm cells inside r 2.6, and `10_solids.json`, 25 cm cells outside it; its `collision` GLB is no longer used, its convex hulls were up to 4.4 m wide; boxes for what is solid in the room's model at walking height: the 10th's pillars and railings, which `10_collision.glb` does not have; its docstring has the command, and its `--floor` must be the table's profile). `ConsoleRoom._build_solids` reads it. The 1st Doctor's armchair is a `CockpitSeat` (RetroXR's fixed seat) built by `_build_seats` from the table's `seats`; the 10th's way out is the exterior's own door leaf twice (`_build_door_leaves`). `emission_cap` limits the 10th model's glare.
 - **Doors.** When RetroXR has `res://Scripts/Objects/room/vr_door.gd` (`VRDoor`, added 2026-11-11; the user's exported binary of 11-10 does NOT have it: re-export), the TARDIS's leaf is hung on one (`Tardis._build_vr_door`: handle taken in a hand, turned with the wrist and pulled; a laser or desktop press swings it open; `self_closing`), and pulled `ENTER_DEGREES` (30) open the player goes in, the door shut first so it is saved shut. `Tardis.door_script_path` is where the script is looked for: the suite points it at `tests/fake_vr_door.gd` (the real one does not compile on this host). Without a VRDoor the door is the `VRButton` as before PLUS `scripts/door_pointer.gd`, a StaticBody3D on layer 21 (a headset's laser cannot see the VRButton's Area3D) that opens the door with the laser's trigger or the A / X button, never with the grip and never from a hand that holds something (the screwdriver sent at the TARDIS uses that trigger). The console rooms' way out has the same body.
 - A TARDIS made solid (a save, the way back) never runs `_show_parts`: whatever must start hidden (`Inside`, `Doorway`) is hidden when it is built. RetroXR's delete calls `drop_and_free()` on an object that has it: the TARDIS uses that to take off (from where it stood before being carried to the bin: `_rest_pose`).
 - `tools/render_cutouts.py` renders the TARDIS and each screwdriver on a transparent background into `src.local/res/`, for the
@@ -176,6 +179,21 @@ blender -b -P tools/render_lineup.py -- /tmp/lineup.png 2 3 4 5 10 11 12 13   # 
 - Models: the originals live in `src.local/` (git-ignored, ~300 MB, has a `.gdignore` so Godot does not
   import it). Every converted GLB must have the same frame: origin on the grip, tip toward -Z, metres,
   LED mesh named `Led`, under 6000 triangles and at most 8 meshes, textures at 256 px (Quest 3 shares its budget with a room).
+
+## Performance of the console rooms (2026-11-12: "both rooms are VERY laggy in VR", Quest 3)
+
+- Measured on the desktop with `render_perf_probe` (mobile renderer): the 10th is 226 k triangles / ~160-200 draw calls in view, the 1st
+  73 k / ~146 (about 100 of those are RetroXR's own rig). Both had 10 omni lights over the whole room: the Quest's mobile renderer lights every
+  pixel with up to 8 per object, so lights are now at most `ConsoleRooms.MAX_LIGHTS` (4), asserted in the suite.
+- **`models/interior/10.glb` had a second glTF scene, "Outside Scene"** (the exterior, 35 meshes, four 4096 px textures, 20 of its 26 MB).
+  Godot builds only the default scene, but `GLTFDocument` decodes every image of the file first. `tools/strip_glb.py` keeps only the default
+  scene (26 -> 11.6 MB; the zip went 21 -> 9.9 MB). Run it on a GLB after any Blender export that has more than one scene.
+- The host's `console_tests` now stops at `_build_door` (63 of 83 cases): RetroXR's `VRButton` does not compile here (`VRButton.new()`:
+  "Nonexistent function 'new' in base 'GDScript'"). It is the host, not the room; the same stops `render_room_probe` (hence its fallback to the
+  JSON's door).
+- The adb on this machine is the host's: `flatpak-spawn --host adb ...` (not in the VS Code Flatpak's PATH, and the Flatpak's `/tmp` is not
+  visible to it: use a folder under `~`). The Quest 3 here runs `com.xenu.retroxr` and `com.xenu.retroxr.side` (the user's test copy); mods go
+  in `/sdcard/Android/data/<package>/files/mods/`. An `adb push` to the headset was refused by the permission classifier: the user has to allow it.
 
 ## Licences
 
@@ -186,3 +204,40 @@ used on the site (the user's recollection, unverified: read its page); other mod
 ## Conventions
 
 - Comments are `##` doc blocks that explain *why*. Pure data in node-free scripts so tests can drive it.
+
+## 2026-11-17: "the TARDIS cannot land" (Quest, `.side` app)
+
+- **`GroundPlacement` was removed from RetroXR** (commit 6dcc15f0, 2026-11-13; replaced by `RayFloorPreview`, switched on per pickable with
+  `ray_floor_preview_default`). `tardis.gd` still named it, so the whole script did not compile and the summon's `instantiate()` gave
+  nothing. Fixed: the TARDIS sets `ray_floor_preview_default = true` (guarded: an older RetroXR has no such property).
+- The summon measures the floor with a ray under the head (`TardisSummon.ground_y`) instead of trusting the XR origin's height, prints
+  `[xenu.tardis] landing: ...` with why spots failed (blocked / floor / view) to the log (logcat tag `godot`: `adb logcat -d | grep xenu.tardis`),
+  and says so if the scene did not build. The user's `user://` on the Quest is not readable by adb (no `run-as`): logcat is the way.
+- RetroXR now has a real `VRDoor`: `tardis_tests` sets `Tardis.door_script_path = NO_VR_DOOR` by default (the button door), the VRDoor case sets the fake.
+- `RetroXR/mods/` is git-ignored and was missing: `ln -s ~/gits/retroxr-mod-tardis ~/gits/RetroXR-xargon/RetroXR/mods/xenu.tardis` recreates it.
+- `console_tests` now fails 5 of 71 cases on this host (door pointer in the 10th's room, floor profile at r 7.5): not looked at.
+- The door is RetroXR's own `VRDoor` (no door code of ours). Its grab is `knob` in the exterior's `leaf` row: the BLACK PULL HANDLE (x 0.032, y 1.145, found by rendering
+  the GLB), not the white dot below it (y 0.945), which is the lock (`Material.005`: now painted brass and no longer lit). `UNLATCH_TURN` 0.1: VRDoor's default
+  asks the wrist for 36 degrees of twist, which a grip-and-pull never gives. Not tried in a headset.
+- **Changing the Doctor in the game (2026-11-17)**: RetroXR still drops a mod object's `variants` (its `tab_rows` keeps `[label, token]`; the user says the dev is on it, no patches in RetroXR for now).
+  The screwdriver therefore answers the generic object menu's hook, `options_choices()` / `options_choose(row, item)` (ObjectOptionsPanel: point and press the left thumbstick, Tab on a desktop),
+  with one row "Doctor"; `set_model(id)` swaps the meshes at run time, keeps `model_variant` metadata (what is saved), re-lights the LED and calls the highlight's `rebuild_overlays()`.
+  All eight models of `src.local/screwdriver` (2, 3, 4, 5, 10, 11, 12, 13) are shipped and registered: none is missing. `tools/retroxr-mod-object-variants.patch` no longer applies (stale).
+
+## 2026-11-17: menu of the screwdriver, the 11th's size, the 1st's grey room
+
+- **The Doctor menu "broke" because the outline counted the menu's own meshes.** After `set_model`, `rebuild_overlays()` outlines every mesh under the
+  screwdriver, the ObjectOptionsPanel's page and grip included; the panel measures "how tall is the object" from every VisualInstance3D under it
+  (`ObjectOptionsPanel._top_offset`), the outline's overlays among them, so with the outline on (aimed at, held) it rose ~5.7 m per second out of
+  sight. Reproduced in a probe (y 7, 12, 18 m...). `_keep_menu_out_of_outline()` puts the menu's meshes in `outline_exclude`, from `set_model` AND when
+  the panel is added (`child_entered_tree`), asserted in the suite. **The user played an old zip for a while: the game's log line
+  `screwdriver is now the X (N of its menu's meshes kept out of the outline)` tells the new build.** Always run `tools/pack.py` and say so.
+- The 11th's GLB is 0.20 m long (`tools/build_models.py`; was 0.111, "almost half of the real one").
+- **`ambient_light_source = 3` is SKY, not COLOR (2).** With a flat background colour there is no sky, so the ambient is black: the 1st Doctor's room was lit
+  by its lamps alone (grey walls, a floor burnt white round each lamp, in a headset). `console_room_1.tscn` is now source 2, energy 0.6, and the lamps are
+  weaker (0.45 / 0.25 / 0.3). Room 10 still has source 3 on purpose-by-accident: it is dark and was left alone. Not seen in a headset.
+
+- **A TARDIS is refused in a console room (2026-11-17).** The screwdriver already did nothing there, but one made from the SPAWN menu (hidden from the list
+  later; for now visible) landed. `Tardis._ready` asks `Travel.in_console_room` (`scene_manager` lets tests inject a fake) and `_refuse()`s: no model,
+  no landing, `TardisSummon.refuse` plays only the fizzle (the last sound of `fail`) at once, and the node frees itself. It also clears a TARDIS a slot
+  saved there by the old build.
