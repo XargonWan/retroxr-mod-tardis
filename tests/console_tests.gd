@@ -64,7 +64,8 @@ func _table() -> void:
 	for l: Array in ConsoleRooms.lights("1"):
 		var c := l[1] as Color
 		white += 1 if c.r > 0.85 and c.g > 0.85 and c.b > 0.75 else 0
-	_check(cyan and amber and white >= 9, "each room has the lights of its photographs: the 10th's cyan rotor and amber roundels, the 1st's many white lights (%d)" % white)
+	_check(cyan and amber and white >= 3 and ConsoleRooms.lights("10").size() <= ConsoleRooms.MAX_LIGHTS and ConsoleRooms.lights("1").size() <= ConsoleRooms.MAX_LIGHTS,
+		"each room has the lights of its photographs (the 10th's cyan rotor and amber, the 1st's whites: %d) and no more than %d (the Quest lights every pixel with them)" % [white, ConsoleRooms.MAX_LIGHTS])
 
 
 func _settings() -> void:
@@ -209,7 +210,8 @@ func _one_room(id: String) -> void:
 			if (cs as CollisionShape3D).shape is BoxShape3D:
 				boxes += 1
 				tallest = maxf(tallest, ((cs as CollisionShape3D).shape as BoxShape3D).size.y)
-	_check(str(row.get("solids", "")).is_empty() or (boxes > 100 and tallest > 1.0), "room %s: the pillars and railings are solid: %d boxes, the tallest %.1f m" % [id, boxes, tallest])
+	var no_solids := str(row.get("solids", "")).is_empty() or (row.get("solids") is Array and (row["solids"] as Array).is_empty())
+	_check(no_solids or (boxes > 100 and tallest > 1.0), "room %s: the pillars and railings are solid: %d boxes, the tallest %.1f m" % [id, boxes, tallest])
 	_check(room.get_node_or_null("DoorPointer") is StaticBody3D and (room.get_node("DoorPointer") as StaticBody3D).collision_layer == (1 << 20),
 		"room %s: the way out has a body the laser can press, with the trigger or A" % id)
 	var leaves: bool = room.get_node_or_null("DoorLeafRight") != null and room.get_node_or_null("DoorLeafLeft") != null

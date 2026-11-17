@@ -151,4 +151,6 @@ func _anchor() -> Vector3:
 	if to_cam.length() < 0.01:
 		to_cam = Vector3(0, 0, 1)
 	var radius := float(_console.get("radius")) if _console.get("radius") != null else 1.0
-	return _console.global_position + to_cam.normalized() * radius * TOWARD_PLAYER + Vector3(0, _float_height(), 0)
+	var out := float(_console.get("menu_out")) if _console.get("menu_out") != null else 0.0
+	var away := out if out > 0.0 else radius * TOWARD_PLAYER
+	return _console.global_position + to_cam.normalized() * away + Vector3(0, _float_height(), 0)

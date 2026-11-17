@@ -10,6 +10,10 @@ var pointer: StaticBody3D = null
 ## The console's size in the room's own metres (set by `setup`): the menu sits on it.
 var radius := 1.0
 var height := 1.0
+## How far from the console's middle, toward the player, the menu hangs (metres, already scaled); 0 = half the radius, over the console's top.
+## The 10th Doctor's console is a mass of arms and a rotor column with solids round it: a menu over it is inside the model, out of
+## the ray's reach, so its table row says `menu_out` and the menu hangs beyond the console's edge.
+var menu_out := 0.0
 
 
 func setup(radius_m: float, height_m: float) -> void:

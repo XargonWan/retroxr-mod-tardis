@@ -31,8 +31,15 @@ func _ready() -> void:
 	var room := root.get_node("ConsoleRoom")
 	var rig := root.get_node("PlayerRig") as Node3D
 	var eye := rig.global_position + Vector3(0, 1.6, 0)
-	var door_at: Vector3 = room.door_button.global_position
-	print("[probe] room %s: rig %s, door button %s (layer %d)" % [id, rig.global_position, door_at, room.door_button.collision_layer])
+	# (on a host that cannot build the door's VRButton there is none: the door is where the model's JSON says)
+	var door_at: Vector3
+	if room.door_button != null:
+		door_at = room.door_button.global_position
+		print("[probe] room %s: rig %s, door button %s (layer %d)" % [id, rig.global_position, door_at, room.door_button.collision_layer])
+	else:
+		var c: Array = (room.meta.get("door", {}) as Dictionary).get("centre", [0, 1.2, 0])
+		door_at = Vector3(float(c[0]), float(c[1]), float(c[2])) * float(room.room_scale)
+		print("[probe] room %s: rig %s, NO door button on this host, door at %s" % [id, rig.global_position, door_at])
 	# what the eye meets on the way to the door, by layer: a wall or pillar (1), the door's own button (21)
 	for mask: int in [1, 1 << 20]:
 		var q := PhysicsRayQueryParameters3D.create(eye, door_at)

@@ -80,7 +80,9 @@ func _ready() -> void:
 	_build_model(str(row["glb"]))
 	_build_colliders()
 	_build_furniture_colliders(str(row.get("collision", "")))
-	_build_solids(str(row.get("solids", "")))
+	var solids: Variant = row.get("solids", "")
+	for path: Variant in (solids as Array if solids is Array else [solids]):
+		_build_solids(str(path))
 	_build_seats()
 	_build_lights()
 	_build_door()
@@ -185,10 +187,11 @@ func _build_colliders() -> void:
 		var basis := Basis(Vector3.UP, -a + PI / 2.0)
 		_shape(room, box, Transform3D(basis, Vector3(cos(a), 0, sin(a)) * (radius + 0.3) + Vector3(0, wall_h / 2.0, 0)))
 	_build_floor(room)
-	var cons := CylinderShape3D.new()
-	cons.radius = console_dims.x * room_scale
-	cons.height = console_dims.y * room_scale
-	_shape(room, cons, Transform3D(Basis.IDENTITY, Vector3(0, console_dims.y * room_scale / 2.0, 0)))
+	if bool(ConsoleRooms.entry(console_id).get("console_cylinder", true)):
+		var cons := CylinderShape3D.new()
+		cons.radius = console_dims.x * room_scale
+		cons.height = console_dims.y * room_scale
+		_shape(room, cons, Transform3D(Basis.IDENTITY, Vector3(0, console_dims.y * room_scale / 2.0, 0)))
 
 
 ## The floor a player stands on where the model's is not at 0: a surface through the table's profile, ramps over
@@ -527,6 +530,7 @@ func set_hum(on: bool) -> void:
 func _build_console() -> void:
 	console = ConsoleMenu.new()
 	console.name = "Console"
+	console.menu_out = float(ConsoleRooms.entry(console_id).get("menu_out", 0.0)) * room_scale
 	add_child(console)
 	console.setup(console_dims.x * room_scale, console_dims.y * room_scale)
 
